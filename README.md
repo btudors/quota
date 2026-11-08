@@ -14,7 +14,8 @@ Web app personale per tenere sotto controllo la previdenza complementare da iPho
 ## Privacy
 - Tutti i dati personali restano **solo nel telefono** (memoria locale del browser). Nessun server, nessun account.
 - In questo repository **non vanno mai caricati** file con dati personali (backup, storico).
-- Backup: Impostazioni › Esporta backup, da salvare in File › iCloud Drive.
+- Backup: Impostazioni › Esporta backup, da salvare in File › iCloud Drive. È anche il file per passare a un altro telefono (Android compreso): sul nuovo dispositivo si fa Importa backup.
+- Foglio di calcolo: Impostazioni › Esporta per foglio di calcolo (CSV). Una riga per mese, separatore `;` e virgola decimale; si apre in Excel, Numbers e Google Fogli. Solo esportazione: per ripristinare i dati si usa il backup JSON.
 
 ## File
 | File | Cosa contiene |
