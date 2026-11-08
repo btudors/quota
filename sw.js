@@ -1,11 +1,14 @@
 // Quota – service worker: l'app funziona anche offline.
 // Aumentare VERSION a ogni rilascio per aggiornare la cache sui telefoni.
-const VERSION = 'quota-v3';
+const VERSION = 'quota-v4';
 const SHELL = [
   './',
   'index.html',
   'app.css',
   'app.js',
+  'busta.js',
+  'vendor/pdfjs/pdf.min.js',
+  'vendor/pdfjs/pdf.worker.min.js',
   'manifest.webmanifest',
   'data/riferimenti.json',
   'icons/apple-touch-icon.png',
