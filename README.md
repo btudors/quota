@@ -1,6 +1,8 @@
 # Quota
 
-Web app per tenere sotto controllo la previdenza complementare (fondo Previdenza Cooperativa) da iPhone.
+Web app personale per tenere sotto controllo la previdenza complementare da iPhone.
+
+> **Progetto personale e indipendente**, non affiliato a Previdenza Cooperativa né ad altri fondi pensione, banche o assicurazioni. Non è un servizio offerto al pubblico. I calcoli sono stime basate su dati pubblici (ISTAT, COVIP) e **non costituiscono consulenza finanziaria**. Il codice non è rilasciato con alcuna licenza: tutti i diritti riservati.
 
 **Indirizzo:** https://btudors.github.io/quota/
 

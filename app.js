@@ -4,7 +4,8 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
+const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
 const REF_CACHE_KEY = 'quota.rif.cache.v1';
@@ -271,6 +272,7 @@ function viewWelcome() {
     <input id="imp-file" class="sr" type="file" accept=".json,application/json" data-act="import">
     <button type="button" class="btn grey" data-act="start-empty">Inizia da zero</button>
     <p style="font-size:13px; margin-top:24px">Per installarla: in Safari tocca Condividi › Aggiungi alla schermata Home.</p>
+    <p style="font-size:12px; margin-top:16px">${DISCLAIMER}</p>
   </div>`;
 }
 
@@ -737,6 +739,7 @@ function viewImpostazioni(M) {
       <input id="imp-file2" class="sr" type="file" accept=".json,application/json" data-act="import">
       <button type="button" class="listlink" style="color:var(--bad)" data-act="wipe">Elimina tutti i dati</button>
     </section>
+    <div class="note">${DISCLAIMER}</div>
     <div class="note">Quota ${APP_VERSION} · dati pubblici ${esc(ref.versione)}</div>`;
 }
 
