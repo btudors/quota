@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.0.2';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -735,6 +735,7 @@ function viewImpostazioni(M) {
     <section class="card flush" style="margin-top:0">
       <div class="row"><div class="row-name" style="font-weight:400">Dati solo su questo iPhone</div><div class="row-meta">Nessun account, nessun server. Fai un backup ogni tanto e salvalo in File › iCloud Drive.</div></div>
       <button type="button" class="listlink" data-act="export">Esporta backup</button>
+      <button type="button" class="listlink" data-act="export-csv">Esporta per foglio di calcolo (CSV)</button>
       <label class="listlink" for="imp-file2" style="cursor:pointer">Importa backup</label>
       <input id="imp-file2" class="sr" type="file" accept=".json,application/json" data-act="import">
       <button type="button" class="listlink" style="color:var(--bad)" data-act="wipe">Elimina tutti i dati</button>
@@ -827,16 +828,50 @@ function importFile(file) {
   };
   rd.readAsText(file);
 }
-async function exportData() {
-  const out = Object.assign({}, data, { esportato: new Date().toISOString().slice(0, 10) });
-  const name = 'quota-backup-' + out.esportato + '.json';
-  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+async function shareFile(content, name, type, title) {
+  const blob = new Blob([content], { type });
   try {
-    const file = new File([blob], name, { type: 'application/json' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Backup Quota' }); return; }
+    const file = new File([blob], name, { type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); return; }
   } catch (e) { if (e && e.name === 'AbortError') return; }
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+async function exportData() {
+  const out = Object.assign({}, data, { esportato: new Date().toISOString().slice(0, 10) });
+  await shareFile(JSON.stringify(out, null, 2), 'quota-backup-' + out.esportato + '.json', 'application/json', 'Backup Quota');
+}
+
+/* Esportazione per foglio di calcolo (sola lettura: non modifica i dati né il backup).
+   Una riga per mese, formato italiano: separatore ";" e virgola decimale, così Excel,
+   Numbers e Google Fogli aprono il file con le colonne già separate. Date AAAA-MM. */
+function buildCSV() {
+  const M = model();
+  const V = {}; for (const v of data.valorizzazioni) V[v.mese] = v;
+  const keys = [...new Set(data.bustePaga.map((b) => b.mese).concat(data.valorizzazioni.map((v) => v.mese)))].sort();
+  const n = (x, d) => (x == null || !isFinite(x) ? '' : Number(x).toFixed(d).replace('.', ','));
+  const cell = (s) => { s = String(s == null ? '' : s); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const head = ['mese', 'imponibile', 'tfr', 'aliquota_volontario_%', 'aliquota_azienda_%', 'contributo_volontario', 'contributo_azienda', 'versato_nel_mese',
+    'numero_quote', 'valore_quota', 'totale_versato_fondo', 'valore_posizione', 'rendimento', 'comparto', 'data_valorizzazione'];
+  const rows = keys.map((k) => {
+    const d = M.months[k], v = V[k], r = rateFor(k);
+    const val = v ? v.quote * v.valoreQuota : null;
+    return [
+      k,
+      d ? n(d.base, 2) : '', d ? n(d.tfr, 2) : '',
+      d && d.base != null ? n(r.volontario * 100, 2) : '', d && d.base != null ? n(r.azienda * 100, 2) : '',
+      d ? n(d.vol, 2) : '', d ? n(d.az, 2) : '', d ? n(d.tot, 2) : '',
+      v ? n(v.quote, 3) : '', v ? n(v.valoreQuota, 3) : '', v ? n(v.totaleVersato, 2) : '',
+      v ? n(val, 2) : '', v ? n(val - v.totaleVersato, 2) : '',
+      v ? (v.comparto || compartoFor(k)) : compartoFor(k), v && v.data ? v.data : ''
+    ].map(cell).join(';');
+  });
+  // BOM UTF-8: serve a Excel per leggere correttamente gli accenti
+  return '﻿' + [head.join(';')].concat(rows).join('\r\n') + '\r\n';
+}
+async function exportCSV() {
+  if (!data.bustePaga.length && !data.valorizzazioni.length) { toast('Nessun dato da esportare'); return; }
+  await shareFile(buildCSV(), 'quota-dati-' + new Date().toISOString().slice(0, 10) + '.csv', 'text/csv', 'Dati Quota');
 }
 
 /* ======================= Eventi ======================= */
@@ -860,6 +895,7 @@ document.addEventListener('click', (ev) => {
     case 'ins-save': saveIns(); break;
     case 'start-empty': data = normalize(emptyData()); data.comparti = [{ nome: 'Dinamico', dal: todayKey() }]; persist(); ui.tab = 'impostazioni'; render(); break;
     case 'export': exportData(); break;
+    case 'export-csv': exportCSV(); break;
     case 'wipe': if (confirm('Eliminare tutti i dati da questo telefono? Fai prima un backup.')) { localStorage.removeItem(STORE_KEY); data = null; render(); } break;
     case 'sheet': openSheet(v); break;
     case 'sheet-close': case 'sheet-scrim': ui.sheet = null; renderSheet(); break;
