@@ -1,0 +1,49 @@
+{
+  "formato": "quota-riferimenti",
+  "versione": "2026-11-08",
+  "aggiornato": "2026-11-08",
+  "tfr": {
+    "fonte": "ISTAT, indice FOI. Coefficiente % sul TFR accantonato al 31/12 dell'anno precedente (1,5% annuo in proporzione + 75% dell'inflazione)",
+    "imposta": 0.17,
+    "coefficienti": {
+      "2024-12": 2.320017,
+      "2025-01": 0.561772,
+      "2025-02": 0.811564,
+      "2025-03": 1.123752,
+      "2025-04": 1.186356,
+      "2025-05": 1.24896,
+      "2025-06": 1.436356,
+      "2025-07": 1.873336,
+      "2025-08": 1.998336,
+      "2025-09": 2.06094,
+      "2025-10": 1.998752,
+      "2025-11": 2.061356,
+      "2025-12": 2.311148,
+      "2026-01": 0.363025,
+      "2026-02": 0.862716,
+      "2026-03": 1.437346,
+      "2026-04": 2.311728,
+      "2026-05": 2.661543,
+      "2026-06": 2.786543,
+      "2026-07": 3.136358,
+      "2026-08": 3.710988,
+      "2026-09": 4.285617
+    }
+  },
+  "isc": {
+    "anno": 2025,
+    "fonte": "COVIP, Relazione annuale 2025: ISC medio a 10 anni",
+    "fondiAperti": 0.0136,
+    "pip": 0.0217,
+    "fondiNegoziali": 0.0047
+  },
+  "fondo": {
+    "nome": "Previdenza Cooperativa",
+    "fonte": "Previdenza Cooperativa, scheda costi: ISC a 10 anni",
+    "iscComparti": {
+      "Sicuro": 0.0067,
+      "Bilanciato": 0.0038,
+      "Dinamico": 0.0027
+    }
+  }
+}
