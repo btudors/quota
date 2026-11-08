@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.1.0';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -589,6 +589,9 @@ function viewInserisci(M) {
     ${f.existed ? '<div class="note">Questo mese ha già dei dati: correggili e salva. Trimestri, grafico e confronto si ricalcolano da soli.</div>' : ''}
     <h3 class="group">1 · Dalla busta paga</h3>
     <section class="card flush" style="margin-top:0">
+      <label class="listlink" for="i-pdf" style="cursor:pointer"><span>Leggi dalla busta paga (PDF)</span>${ICON_DOC}</label>
+      <input id="i-pdf" class="sr" type="file" accept="application/pdf,.pdf" data-act="busta-pdf">
+      <div id="pdf-info">${pdfBanner(f.pdf)}</div>
       <div class="field"><label for="i-base">Imponibile</label><input id="i-base" inputmode="decimal" autocomplete="off" data-f="base" value="${esc(f.base)}" placeholder="${lastB && lastB.imponibile != null ? esc(num(lastB.imponibile, 2)) : '0,00'}"></div>
       <div class="field"><label for="i-tfr">TFR del mese</label><input id="i-tfr" inputmode="decimal" autocomplete="off" data-f="tfr" value="${esc(f.tfr)}" placeholder="${lastB ? esc(num(lastB.tfr, 2)) : '0,00'}"></div>
       <div class="calc" id="calc-pay"></div>
@@ -607,6 +610,53 @@ function viewInserisci(M) {
     ${prevSnap ? '<div class="note">In grigio i valori di ' + MESI[parseKey(prevSnap.k).m - 1] + ' ' + parseKey(prevSnap.k).y + '.</div>' : ''}
     <div id="ins-err"></div>
     <div style="margin:20px 16px 0"><button type="button" class="btn primary big" data-act="ins-save" id="ins-save">Salva ${MESI[parseKey(k).m - 1]}</button></div>`;
+}
+
+/* ---------- Lettura busta paga PDF (busta.js) ---------- */
+const ICON_DOC = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg>';
+function pdfBanner(p) {
+  if (!p) return '';
+  const extra = (p.righe || []).map((r) => `<div style="margin-top:4px">${esc(r)}</div>`).join('');
+  return `<div class="banner ${p.stato}" role="status">${esc(p.msg)}${extra}</div>`;
+}
+async function readBusta(file) {
+  const info = $('#pdf-info');
+  if (info) info.innerHTML = pdfBanner({ stato: 'info', msg: 'Lettura della busta paga…' });
+  let res;
+  try {
+    if (!window.QuotaBusta) throw new Error('Lettore PDF non disponibile: ricarica l\'app.');
+    res = await window.QuotaBusta.readPdf(file, {
+      askPassword: (retry) => prompt(retry ? 'Password errata. Riprova:' : 'La busta paga è protetta da password. Inseriscila (non viene salvata):')
+    });
+  } catch (e) {
+    if (!ui.form) return;
+    ui.form.pdf = { stato: 'bad', msg: e && e.message ? e.message : 'Impossibile leggere il PDF.' };
+    render(); return;
+  }
+  if (!ui.form || ui.tab !== 'inserisci') return;
+  const val = (n) => n == null ? '—' : eur(n);
+  if (res.mensilita) {
+    ui.form.pdf = { stato: 'warn', msg: `Questa è la busta della ${res.mensilita.n}ª mensilità ${res.mensilita.y}: i valori non sono stati inseriti in automatico.`,
+      righe: ['Letti: imponibile ' + val(res.imponibile) + ', TFR ' + val(res.tfr) + '. Se servono, inseriscili a mano nel mese giusto.'] };
+    render(); return;
+  }
+  if (res.imponibile == null && res.tfr == null) {
+    ui.form.pdf = { stato: 'bad', msg: 'Non ho trovato i dati in questo PDF. Inseriscili a mano.', righe: res.avvisi };
+    render(); return;
+  }
+  let k = ui.form.k; const righe = [];
+  if (res.mese && res.mese !== k) {
+    if (res.mese > todayKey()) righe.push('Il mese indicato nella busta (' + monthLabel(res.mese) + ') è nel futuro: valori inseriti in ' + monthLabel(k) + '.');
+    else { k = res.mese; ui.insMonth = k; ui.form = insDefaults(k); }
+  } else if (!res.mese) righe.push('Mese non trovato nella busta: verifica che sia ' + monthLabel(k) + '.');
+  const f = ui.form, old = data.bustePaga.find((b) => b.mese === k);
+  if (res.imponibile != null) f.base = inVal(res.imponibile, 2);
+  if (res.tfr != null) f.tfr = inVal(res.tfr, 2);
+  if (old && ((res.imponibile != null && old.imponibile !== res.imponibile) || (res.tfr != null && old.tfr !== res.tfr)))
+    righe.push('Sostituiscono i dati già salvati: imponibile ' + val(old.imponibile) + ', TFR ' + val(old.tfr) + '.');
+  righe.push(...res.controlli, ...res.avvisi);
+  f.pdf = { stato: res.avvisi.length ? 'warn' : 'ok', msg: 'Letti dalla busta paga di ' + monthLabel(k) + ': imponibile ' + val(res.imponibile) + ', TFR ' + val(res.tfr) + '. Controlla e premi Salva.', righe };
+  render(); window.scrollTo(0, 0);
 }
 
 function refreshInsCalc() {
@@ -914,6 +964,7 @@ document.addEventListener('input', (ev) => {
 document.addEventListener('change', (ev) => {
   const t = ev.target;
   if (t.dataset.act === 'import' && t.files && t.files[0]) { importFile(t.files[0]); t.value = ''; }
+  if (t.dataset.act === 'busta-pdf' && t.files && t.files[0]) { const file = t.files[0]; t.value = ''; readBusta(file); }
   if (t.dataset.act === 'ins-select') { ui.insMonth = t.value; ui.form = null; render(); }
   if (t.dataset.s && ui.sheet) { ui.sheet[t.dataset.s] = t.value; }
 });

@@ -11,6 +11,9 @@ Web app personale per tenere sotto controllo la previdenza complementare da iPho
 2. Condividi › **Aggiungi alla schermata Home**.
 3. Al primo avvio: **Importa il tuo storico** (file `quota-backup` in formato JSON) oppure **Inizia da zero**.
 
+## Busta paga in PDF
+Inserisci › **Leggi dalla busta paga (PDF)**: l'app legge mese, imponibile (voce 721, colonna Dato Base) e TFR (voce 786) e compila il modulo; poi controlli e salvi. Il PDF non viene caricato né conservato. Funziona con i PDF con testo (non con scansioni/foto).
+
 ## Privacy
 - Tutti i dati personali restano **solo nel telefono** (memoria locale del browser). Nessun server, nessun account.
 - In questo repository **non vanno mai caricati** file con dati personali (backup, storico).
@@ -21,6 +24,8 @@ Web app personale per tenere sotto controllo la previdenza complementare da iPho
 | File | Cosa contiene |
 |---|---|
 | `index.html`, `app.css`, `app.js` | l'app |
+| `busta.js` | lettura della busta paga in PDF (voci Inaz 721 e 786), tutta nel telefono |
+| `vendor/pdfjs/` | pdf.js 3.2.146 di Mozilla (Apache 2.0), caricato solo quando leggi un PDF |
 | `sw.js` | funzionamento offline. **Aumenta `VERSION` a ogni rilascio** |
 | `manifest.webmanifest`, `icons/` | installazione sulla schermata Home |
 | `data/riferimenti.json` | dati pubblici: coefficienti TFR (ISTAT) e costi medi ISC (COVIP, scheda costi del fondo) |
