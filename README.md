@@ -12,7 +12,25 @@ Web app personale per tenere sotto controllo la previdenza complementare da iPho
 3. Al primo avvio: **Importa il tuo storico** (file `quota-backup` in formato JSON) oppure **Inizia da zero**.
 
 ## Busta paga in PDF
-Inserisci › **Leggi dalla busta paga (PDF)**: l'app legge mese, imponibile (voce 721, colonna Dato Base) e TFR (voce 786) e compila il modulo; poi controlli e salvi. Il PDF non viene caricato né conservato. Funziona con i PDF con testo (non con scansioni/foto).
+Inserisci › **Leggi dalla busta paga (PDF)**: l'app legge mese, imponibile, contributo azienda, contributo volontario e TFR e compila il modulo; poi controlli e salvi. I contributi vengono confrontati con le aliquote impostate (Impostazioni › Aliquote). Il PDF non viene caricato né conservato. Funziona con i PDF con testo (non con scansioni/foto).
+
+### Modelli di busta paga
+La lettura è divisa in due parti:
+- `busta.js` è il **motore generico**: trasforma il PDF in righe e colonne. Non si tocca.
+- `busta-profili.js` contiene i **profili**: per ogni modello di cedolino dice in quale voce, riga e colonna si trova ogni dato. L'app sceglie da sola il profilo in base ai testi di `riconoscimento`.
+
+Profilo attuale (Inaz Stampe.net, Previdenza Cooperativa):
+| Dato | Voce | Riga | Colonna |
+|---|---|---|---|
+| Imponibile | 721 | `*** c/Azienda` | Dato Base |
+| Contributo azienda | 721 | `*** c/Azienda` | Dato Figurativo |
+| Contributo volontario | 723 | `Ctr.Filcoop Dip.` | Competenze/Ritenute |
+| TFR al fondo | 786 | `Smobilitazione. % su Tfr` | Dato Figurativo (o Dato Base) |
+
+Per un modello nuovo: copia il profilo esistente in `busta-profili.js`, cambia `id`, `nome`, `riconoscimento`, i nomi delle `colonne` e le voci dei `campi`, poi aumenta `VERSION` in `sw.js`.
+
+## Spazio deducibile
+In Panoramica la card **Spazio deducibile** somma contributo volontario e contributo azienda dell'anno (per mese di competenza della busta paga; il TFR non conta) e li confronta con il limite di legge. Il limite è in `data/riferimenti.json` › `deducibilita.limiti` (chiave = anno da cui vale): 5.164,57 € fino al 2025, 5.300 € dal 2026. Da metà novembre la card ricorda quanto si può ancora versare entro il 31 dicembre. Il dettaglio per anno è in Anni › Deducibilità.
 
 ## Privacy
 - Tutti i dati personali restano **solo nel telefono** (memoria locale del browser). Nessun server, nessun account.
@@ -24,7 +42,8 @@ Inserisci › **Leggi dalla busta paga (PDF)**: l'app legge mese, imponibile (vo
 | File | Cosa contiene |
 |---|---|
 | `index.html`, `app.css`, `app.js` | l'app |
-| `busta.js` | lettura della busta paga in PDF (voci Inaz 721 e 786), tutta nel telefono |
+| `busta.js` | motore di lettura della busta paga in PDF, tutto nel telefono |
+| `busta-profili.js` | modelli di busta paga riconosciuti (voci, righe, colonne) |
 | `vendor/pdfjs/` | pdf.js 3.2.146 di Mozilla (Apache 2.0), caricato solo quando leggi un PDF |
 | `sw.js` | funzionamento offline. **Aumenta `VERSION` a ogni rilascio** |
 | `manifest.webmanifest`, `icons/` | installazione sulla schermata Home |
@@ -32,6 +51,7 @@ Inserisci › **Leggi dalla busta paga (PDF)**: l'app legge mese, imponibile (vo
 
 ## Aggiornare i dati pubblici
 Modifica `data/riferimenti.json` e cambia il campo `versione` (es. `2027-06-20`): l'app scarica il nuovo file da sola al primo avvio online.
+- **Limite deducibile**: aggiungi in `deducibilita.limiti` l'anno da cui vale il nuovo importo.
 - **TFR**: aggiungi il coefficiente del mese in `tfr.coefficienti` (chiave `AAAA-MM`, valore in %).
 - **Costi COVIP** (una volta l'anno, giugno): `isc.fondiAperti`, `isc.pip`, `isc.anno`, `isc.fonte` (valori decimali: 1,36% = `0.0136`).
 - **Costi del fondo**: `fondo.iscComparti`.

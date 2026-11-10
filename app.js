@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.2.0';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -20,7 +20,8 @@ const INIZ = ['G', 'F', 'M', 'A', 'M', 'G', 'L', 'A', 'S', 'O', 'N', 'D'];
 
 // Dati pubblici incorporati: l'app funziona anche se il download non riesce.
 const REF_BUILTIN = {
-  formato: 'quota-riferimenti', versione: '2026-11-08', aggiornato: '2026-11-08',
+  formato: 'quota-riferimenti', versione: '2026-11-10', aggiornato: '2026-11-10',
+  deducibilita: { fonte: 'D.Lgs. 252/2005 art. 8 c. 4, come modificato dalla Legge 199/2025 (Bilancio 2026)', limiti: { '2007': 5164.57, '2026': 5300 } },
   tfr: { fonte: 'ISTAT, indice FOI', imposta: 0.17, coefficienti: {
     '2024-12': 2.320017,
     '2025-01': 0.561772, '2025-02': 0.811564, '2025-03': 1.123752, '2025-04': 1.186356, '2025-05': 1.248960, '2025-06': 1.436356,
@@ -87,6 +88,9 @@ function normalize(d) {
   out.bustePaga = (d.bustePaga || []).filter((b) => b && b.mese && isFinite(b.tfr)).map((b) => {
     const r = { mese: b.mese, imponibile: b.imponibile == null ? null : Number(b.imponibile), tfr: Number(b.tfr) };
     if (b.aziendaManuale != null) r.aziendaManuale = Number(b.aziendaManuale);
+    // Contributi letti dalla busta paga (facoltativi): se mancano si stimano dalle aliquote.
+    if (b.azienda != null && isFinite(b.azienda)) r.azienda = Number(b.azienda);
+    if (b.volontario != null && isFinite(b.volontario)) r.volontario = Number(b.volontario);
     if (b.nota) r.nota = b.nota;
     return r;
   });
@@ -103,6 +107,7 @@ function normalize(d) {
 /* ======================= Dati pubblici ======================= */
 function effRef() {
   const r = JSON.parse(JSON.stringify(ref));
+  if (!r.deducibilita) r.deducibilita = REF_BUILTIN.deducibilita;
   if (refUser) {
     if (refUser.isc) Object.assign(r.isc, refUser.isc);
     if (refUser.iscComparti) Object.assign(r.fondo.iscComparti, refUser.iscComparti);
@@ -135,12 +140,39 @@ function tfrCoef(y, m) {
 function rateFor(k) { let r = data.aliquote[0]; for (const a of data.aliquote) if (a.dal <= k) r = a; return r; }
 function compartoFor(k) { let c = data.comparti[0] ? data.comparti[0].nome : 'Comparto'; for (const x of data.comparti) if (x.dal <= k) c = x.nome; return c; }
 function buste() { const m = {}; for (const b of data.bustePaga) m[b.mese] = b; return m; }
+/* Contributi del mese: quelli letti dalla busta paga se ci sono, altrimenti stimati dalle aliquote.
+   stimato = almeno uno dei due contributi è calcolato e non letto. */
 function monthCalc(b) {
   if (!b) return null;
-  if (b.imponibile == null) { const az = b.aziendaManuale || 0; return { base: null, tfr: b.tfr, vol: 0, az, tot: az + b.tfr }; }
+  const letti = b.azienda != null && b.volontario != null;
+  if (b.imponibile == null) {
+    const az = b.azienda != null ? b.azienda : (b.aziendaManuale || 0), vol = b.volontario != null ? b.volontario : 0;
+    return { base: null, tfr: b.tfr, vol, az, tot: vol + az + b.tfr, stimato: !letti };
+  }
   const r = rateFor(b.mese);
-  const vol = b.imponibile * r.volontario, az = b.imponibile * r.azienda;
-  return { base: b.imponibile, tfr: b.tfr, vol, az, tot: vol + az + b.tfr, r };
+  const vol = b.volontario != null ? b.volontario : b.imponibile * r.volontario;
+  const az = b.azienda != null ? b.azienda : b.imponibile * r.azienda;
+  return { base: b.imponibile, tfr: b.tfr, vol, az, tot: vol + az + b.tfr, r, stimato: !letti };
+}
+
+/* Limite di deducibilità in vigore nell'anno (dati pubblici, aggiornabili da riferimenti.json). */
+function limiteDeducibile(y) {
+  const L = effRef().deducibilita.limiti; let v = null;
+  for (const k of Object.keys(L).sort()) if (Number(k) <= y) v = L[k];
+  return v;
+}
+/* Spazio deducibile dell'anno: contributo tuo + azienda, per mese di competenza della busta paga. Il TFR non conta. */
+function deducibile(M, y) {
+  const lim = limiteDeducibile(y); if (lim == null) return null;
+  let vol = 0, az = 0, mesi = 0, stimati = 0, ultimo = 0;
+  for (let m = 1; m <= 12; m++) {
+    const d = M.months[key(y, m)]; if (!d) continue;
+    vol += d.vol; az += d.az; mesi++; ultimo = m; if (d.stimato) stimati++;
+  }
+  const usato = vol + az;
+  // Proiezione a fine anno: media dei mesi registrati per i mesi che mancano (solo se l'anno è in corso).
+  const proiezione = mesi && ultimo < 12 ? usato + (usato / mesi) * (12 - ultimo) : null;
+  return { y, lim, vol, az, usato, resto: lim - usato, oltre: Math.max(0, usato - lim), mesi, stimati, ultimo, proiezione };
 }
 function snaps() {
   return data.valorizzazioni.map((v) => ({ k: v.mese, i: idxOf(v.mese), q: v.quote, vq: v.valoreQuota, e: v.totaleVersato, v: v.quote * v.valoreQuota, c: v.comparto || compartoFor(v.mese), data: v.data }));
@@ -374,7 +406,7 @@ function viewHome(M) {
         <div><div class="title">${monthLabel(pm.k)} da completare</div><div class="sub">Due minuti, una volta al mese</div></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px;font-size:15px">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Busta paga · imponibile e TFR</span>${tag(pm.needPay)}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Busta paga · imponibile, contributi e TFR</span>${tag(pm.needPay)}</div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Sito del fondo · quote e valore quota</span>${tag(pm.needSnap)}</div>
       </div>
       <div class="btnrow">
@@ -388,6 +420,9 @@ function viewHome(M) {
       <div><div class="title">${monthLabel(pm.k)} completato</div><div class="sub">Il prossimo promemoria arriva con la busta paga di ${MESI[parseKey(todayKey()).m - 1]}</div></div>
     </section>`;
   }
+
+  // Spazio deducibile
+  html += cardDeducibile(M);
 
   // Confronto
   const C = comparison(M);
@@ -473,6 +508,46 @@ function viewHome(M) {
   return html;
 }
 
+/* Card della Panoramica: quanto spazio deducibile resta nell'anno. */
+function cardDeducibile(M) {
+  const oggi = parseKey(todayKey());
+  let D = deducibile(M, oggi.y);
+  if (D && !D.mesi) { const P = deducibile(M, oggi.y - 1); if (P && P.mesi) D = P; } // a inizio anno mostra ancora l'anno chiuso
+  if (!D || !D.mesi) return '';
+  const chiuso = D.y < oggi.y || D.ultimo === 12;
+  const scala = Math.max(D.lim, D.usato);
+  const w = (x) => (x / scala * 100).toFixed(1) + '%';
+  let big, pill;
+  if (D.oltre > 0.005) { big = `<span class="warn-t">Oltre di ${eur(D.oltre)}</span>`; pill = '<span class="pill warn">Limite superato</span>'; }
+  else if (D.resto < 0.005) { big = '<span class="ok-t">Limite raggiunto</span>'; pill = '<span class="pill ok">Al massimo</span>'; }
+  else { big = (chiuso ? 'Non usati ' : 'Restano ') + eur(D.resto); pill = D.stimati ? '<span class="pill idle">In parte stimato</span>' : ''; }
+  const note = [];
+  if (!chiuso && D.proiezione != null && D.oltre <= 0) {
+    const fine = D.lim - D.proiezione;
+    note.push('A questo ritmo a fine anno arrivi a ' + eur(D.proiezione, 0) + (fine >= 0 ? ': resterebbero ' + eur(fine, 0) + ' di spazio.' : ', oltre il limite di ' + eur(-fine, 0) + '.'));
+  }
+  if (D.stimati) note.push(D.stimati + (D.stimati === 1 ? ' mese ha' : ' mesi hanno') + ' i contributi stimati dalle aliquote: ricarica la busta paga per i valori esatti.');
+  note.push('Non conta eventuali versamenti fatti fuori busta paga.');
+  let banner = '';
+  const fineAnno = D.y === oggi.y && (oggi.m === 12 || (oggi.m === 11 && new Date().getDate() >= 15));
+  if (D.oltre > 0.005) banner = `<div class="banner warn" style="margin-top:14px;border-radius:12px">La parte oltre il limite non è deducibile. Comunicala al fondo entro il 31 dicembre ${D.y + 1}: così alla fine non verrà tassata di nuovo.</div>`;
+  else if (fineAnno && D.resto >= 1) banner = `<div class="banner info" style="margin-top:14px;border-radius:12px">Entro il 31 dicembre puoi versare ancora fino a <b>${eur(D.resto)}</b> con un versamento volontario e dedurli nella prossima dichiarazione. ${extLink(LINK_AREA, 'Area riservata', '', 'font-weight:600;color:inherit')}</div>`;
+  return `<section class="card" aria-label="Spazio deducibile ${D.y}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="title">Spazio deducibile ${D.y}</div>${pill}</div>
+    <div class="sub">Contributo tuo e dell'azienda · il TFR non conta</div>
+    <div class="num" style="font-size:26px;font-weight:700;letter-spacing:-.02em;margin-top:10px">${big}</div>
+    <div class="bar" role="img" aria-label="Usati ${eur(D.usato)} su ${eur(D.lim)}"><div style="width:${w(D.az)};background:var(--az)"></div><div style="width:${w(D.vol)};background:var(--vol)"></div></div>
+    <div class="grid3">
+      <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Tuo</div><div class="kv-v">${eur(D.vol)}</div></div>
+      <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${eur(D.az)}</div></div>
+      <div><div class="kv-l">Limite</div><div class="kv-v">${eur(D.lim)}</div></div>
+    </div>
+    ${banner}
+    <div class="sub" style="margin-top:12px;color:var(--text-2)">${note.map(esc).join(' ')}</div>
+    <button type="button" class="linkbtn" data-act="go-anni" data-v="${D.y}">Dettaglio nel resoconto ${D.y}</button>
+  </section>`;
+}
+
 function bindChart(M) {
   const el = $('#chart'); if (!el) return;
   const G = chartGeom(M); if (!G) return;
@@ -516,6 +591,7 @@ function viewAnni(M) {
         <div class="row-top"><span class="row-name">${cap(MESI[m - 1])}</span><span class="row-name num">${eur(d.tot)}</span></div>
         <div class="row-meta">${d.base == null ? 'Imponibile non registrato' + (d.az ? ' · azienda inserita a mano' : '') : 'Imponibile ' + eur(d.base)}</div>
         <div class="row-meta" style="margin-top:1px">Vol. ${eur(d.vol)} · Az. ${eur(d.az)} · TFR ${eur(d.tfr)}</div>
+        ${d.stimato && d.base != null ? '<div class="row-meta" style="color:var(--muted)">Contributi stimati dalle aliquote</div>' : ''}
         ${snap ? `<div class="row-meta ok-t">${num(snap.q, 3)} quote × ${num(snap.vq, 3)} € = ${eur(snap.v)}</div>` : (M.P.length && k > M.P[0].k ? '<div class="row-meta warn-t">Valore quota non registrato</div>' : '')}
         <div class="row-actions"><span style="font-size:12px;font-weight:600;color:var(--info)">${edited ? 'Modificato da te' : ''}</span><button type="button" class="chipbtn" data-act="ins-month" data-v="${k}" aria-label="Modifica ${MESI[m - 1]} ${Y}">Modifica</button></div>
       </div>`);
@@ -539,6 +615,24 @@ function viewAnni(M) {
       <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${eur(ya)}</div></div>
       <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Volontario</div><div class="kv-v">${eur(yv)}</div></div>
     </div></section>`;
+
+  const D = deducibile(M, Y);
+  if (D && D.mesi) {
+    const passato = Y < parseKey(todayKey()).y;
+    const [lab3, val3] = D.oltre > 0.005 ? ['Oltre il limite', `<span class="warn-t">${eur(D.oltre)}</span>`] : D.resto < 0.005 ? ['Spazio', '<span class="ok-t">Pieno</span>'] : [passato ? 'Non usati' : 'Restano', eur(D.resto)];
+    const sc = Math.max(D.lim, D.usato);
+    html += `<h2 class="sec">Deducibilità</h2><section class="card" aria-label="Deducibilità ${Y}">
+      <div class="sub">Contributi deducibili su ${eur(D.lim)}</div>
+      <div class="num" style="font-size:26px;font-weight:700;letter-spacing:-.02em;margin-top:2px">${eur(D.usato)}</div>
+      <div class="bar"><div style="width:${(D.az / sc * 100).toFixed(1)}%;background:var(--az)"></div><div style="width:${(D.vol / sc * 100).toFixed(1)}%;background:var(--vol)"></div></div>
+      <div class="grid3">
+        <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Tuo</div><div class="kv-v">${eur(D.vol)}</div></div>
+        <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${eur(D.az)}</div></div>
+        <div><div class="kv-l">${lab3}</div><div class="kv-v">${val3}</div></div>
+      </div>
+      <div class="sub" style="margin-top:12px;color:var(--text-2)">${D.stimati ? D.stimati + (D.stimati === 1 ? ' mese con contributi stimati' : ' mesi con contributi stimati') + ' dalle aliquote, segnati qui sotto. ' : 'Contributi letti dalle buste paga. '}Il TFR versato al fondo (${eur(yf)}) non rientra nel limite. Per conferma, confronta il totale con la Certificazione Unica.</div>
+    </section>`;
+  }
 
   const ysnap = M.P.filter((p) => parseKey(p.k).y === Y);
   if (ysnap.length) {
@@ -574,7 +668,8 @@ function viewAnni(M) {
 function insDefaults(k) {
   const b = data.bustePaga.find((x) => x.mese === k);
   const v = data.valorizzazioni.find((x) => x.mese === k);
-  return { k, base: b && b.imponibile != null ? inVal(b.imponibile, 2) : '', tfr: b ? inVal(b.tfr, 2) : '', q: v ? inVal(v.quote, 3) : '', vq: v ? inVal(v.valoreQuota, 3) : '', e: v ? inVal(v.totaleVersato, 2) : '', existed: !!(b || v), err: null };
+  return { k, base: b && b.imponibile != null ? inVal(b.imponibile, 2) : '', tfr: b ? inVal(b.tfr, 2) : '',
+    az: b && b.azienda != null ? inVal(b.azienda, 2) : '', vol: b && b.volontario != null ? inVal(b.volontario, 2) : '', q: v ? inVal(v.quote, 3) : '', vq: v ? inVal(v.valoreQuota, 3) : '', e: v ? inVal(v.totaleVersato, 2) : '', existed: !!(b || v), err: null };
 }
 
 function viewInserisci(M) {
@@ -598,10 +693,12 @@ function viewInserisci(M) {
       <input id="i-pdf" class="sr" type="file" accept="application/pdf,.pdf" data-act="busta-pdf">
       <div id="pdf-info">${pdfBanner(f.pdf)}</div>
       <div class="field"><label for="i-base">Imponibile</label><input id="i-base" inputmode="decimal" autocomplete="off" data-f="base" value="${esc(f.base)}" placeholder="${lastB && lastB.imponibile != null ? esc(num(lastB.imponibile, 2)) : '0,00'}"></div>
+      <div class="field"><label for="i-az">Contributo azienda</label><input id="i-az" inputmode="decimal" autocomplete="off" data-f="az" value="${esc(f.az)}" placeholder="0,00"></div>
+      <div class="field"><label for="i-vol">Contributo volontario</label><input id="i-vol" inputmode="decimal" autocomplete="off" data-f="vol" value="${esc(f.vol)}" placeholder="0,00"></div>
       <div class="field"><label for="i-tfr">TFR del mese</label><input id="i-tfr" inputmode="decimal" autocomplete="off" data-f="tfr" value="${esc(f.tfr)}" placeholder="${lastB ? esc(num(lastB.tfr, 2)) : '0,00'}"></div>
       <div class="calc" id="calc-pay"></div>
     </section>
-    <div class="note"><span id="ph-pay"></span>Volontario e azienda si calcolano con le aliquote in vigore in quel mese, che cambi in Impostazioni.</div>
+    <div class="note"><span id="ph-pay"></span>I contributi si leggono dalla busta paga e si controllano con le aliquote in Impostazioni. Se li lasci vuoti, l'app li stima con le aliquote di quel mese.</div>
     <h3 class="group">2 · Dal sito del fondo</h3>
     <section class="card flush" style="margin-top:0">
       ${extLink(LINK_AREA, '<span>Apri l\'area riservata</span>' + ICON_EXT, 'listlink')}
@@ -642,10 +739,10 @@ async function readBusta(file) {
   const val = (n) => n == null ? '—' : eur(n);
   if (res.mensilita) {
     ui.form.pdf = { stato: 'warn', msg: `Questa è la busta della ${res.mensilita.n}ª mensilità ${res.mensilita.y}: i valori non sono stati inseriti in automatico.`,
-      righe: ['Letti: imponibile ' + val(res.imponibile) + ', TFR ' + val(res.tfr) + '. Se servono, inseriscili a mano nel mese giusto.'] };
+      righe: ['Letti: imponibile ' + val(res.imponibile) + ', contributo azienda ' + val(res.azienda) + ', contributo volontario ' + val(res.volontario) + ', TFR ' + val(res.tfr) + '. Ricorda che anche questi contributi contano per il limite deducibile: se servono, inseriscili a mano.'] };
     render(); return;
   }
-  if (res.imponibile == null && res.tfr == null) {
+  if (res.imponibile == null && res.tfr == null && res.azienda == null && res.volontario == null) {
     ui.form.pdf = { stato: 'bad', msg: 'Non ho trovato i dati in questo PDF. Inseriscili a mano.', righe: res.avvisi };
     render(); return;
   }
@@ -657,21 +754,50 @@ async function readBusta(file) {
   const f = ui.form, old = data.bustePaga.find((b) => b.mese === k);
   if (res.imponibile != null) f.base = inVal(res.imponibile, 2);
   if (res.tfr != null) f.tfr = inVal(res.tfr, 2);
-  if (old && ((res.imponibile != null && old.imponibile !== res.imponibile) || (res.tfr != null && old.tfr !== res.tfr)))
-    righe.push('Sostituiscono i dati già salvati: imponibile ' + val(old.imponibile) + ', TFR ' + val(old.tfr) + '.');
-  righe.push(...res.controlli, ...res.avvisi);
-  f.pdf = { stato: res.avvisi.length ? 'warn' : 'ok', msg: 'Letti dalla busta paga di ' + monthLabel(k) + ': imponibile ' + val(res.imponibile) + ', TFR ' + val(res.tfr) + '. Controlla e premi Salva.', righe };
+  if (res.azienda != null) f.az = inVal(res.azienda, 2);
+  if (res.volontario != null) f.vol = inVal(res.volontario, 2);
+  const cambia = (a, b) => a != null && b != null && Math.abs(a - b) > 0.005;
+  if (old && (cambia(res.imponibile, old.imponibile) || cambia(res.tfr, old.tfr) || cambia(res.azienda, old.azienda) || cambia(res.volontario, old.volontario)))
+    righe.push('Sostituiscono i dati già salvati: imponibile ' + val(old.imponibile) + ', azienda ' + val(old.azienda) + ', volontario ' + val(old.volontario) + ', TFR ' + val(old.tfr) + '.');
+  // Controllo con le aliquote impostate dall'utente (dipendono dal contratto, non dal modello di busta).
+  const avvAliq = controlloAliquote(k, res.imponibile, res.azienda, res.volontario);
+  righe.push(...res.controlli, ...res.avvisi, ...avvAliq);
+  const nomeProfilo = res.profilo && res.profilo.certo ? ' (' + res.profilo.nome + ')' : '';
+  f.pdf = { stato: res.avvisi.length || avvAliq.length ? 'warn' : 'ok', msg: 'Letti dalla busta paga di ' + monthLabel(k) + nomeProfilo + ': imponibile ' + val(res.imponibile) + ', azienda ' + val(res.azienda) + ', volontario ' + val(res.volontario) + ', TFR ' + val(res.tfr) + '. Controlla e premi Salva.', righe };
   render(); window.scrollTo(0, 0);
+}
+
+/* Confronta i contributi letti con le aliquote impostate per quel mese; restituisce gli avvisi. */
+function controlloAliquote(k, base, az, vol) {
+  const out = []; if (!(base > 0)) return out;
+  const r = rateFor(k);
+  const chk = (val, aliq, nome) => {
+    if (val == null || !isFinite(val)) return;
+    const atteso = Math.round(base * aliq * 100) / 100;
+    if (Math.abs(val - atteso) > 0.02) out.push('Il ' + nome + ' (' + eur(val) + ') non corrisponde all\'aliquota impostata: ' + pctPlain(aliq, aliq * 100 % 1 ? 1 : 0) + ' dell\'imponibile = ' + eur(atteso) + '. Se l\'aliquota è cambiata, aggiornala in Impostazioni.');
+  };
+  chk(az, r.azienda, 'contributo azienda'); chk(vol, r.volontario, 'contributo volontario');
+  return out;
 }
 
 function refreshInsCalc() {
   const M = model(), f = ui.form; if (!f) return;
   const k = f.k, { m } = parseKey(k), r = rateFor(k);
   const base = parseIt(f.base), tfr = parseIt(f.tfr), q = parseIt(f.q), vq = parseIt(f.vq), e = parseIt(f.e);
-  const vol = base > 0 ? base * r.volontario : 0, az = base > 0 ? base * r.azienda : 0;
+  const p0 = (a) => pctPlain(a, a * 100 % 1 ? 1 : 0);
+  const volS = base > 0 ? base * r.volontario : 0, azS = base > 0 ? base * r.azienda : 0;
+  const azIn = parseIt(f.az), volIn = parseIt(f.vol);
+  const az = azIn >= 0 ? azIn : azS, vol = volIn >= 0 ? volIn : volS;
+  for (const [id, v] of [['#i-az', azS], ['#i-vol', volS]]) { const el = $(id); if (el) el.placeholder = base > 0 ? num(v, 2) : '0,00'; }
+  // stato di ogni contributo: letto e coerente con l'aliquota, letto ma diverso, oppure stimato
+  const st = (inp, stima, aliq) => {
+    if (!(inp >= 0)) return `<span style="color:var(--muted)">stimato · ${p0(aliq)}</span>`;
+    if (!(base > 0)) return '';
+    return Math.abs(inp - Math.round(stima * 100) / 100) <= 0.02 ? `<span class="ok-t">✓ ${p0(aliq)}</span>` : `<span class="warn-t">≠ ${p0(aliq)} (${eur(stima)})</span>`;
+  };
   const pay = $('#calc-pay');
-  if (pay) pay.innerHTML = `<div><span>Volontario · ${pctPlain(r.volontario, r.volontario * 100 % 1 ? 1 : 0)}</span><span class="num">${base > 0 ? eur(vol) : '—'}</span></div>
-    <div><span>Azienda · ${pctPlain(r.azienda, r.azienda * 100 % 1 ? 1 : 0)}</span><span class="num">${base > 0 ? eur(az) : '—'}</span></div>
+  if (pay) pay.innerHTML = `<div><span>Azienda ${st(azIn, azS, r.azienda)}</span><span class="num">${base > 0 || azIn >= 0 ? eur(az) : '—'}</span></div>
+    <div><span>Volontario ${st(volIn, volS, r.volontario)}</span><span class="num">${base > 0 || volIn >= 0 ? eur(vol) : '—'}</span></div>
     <div class="strong"><span>Versato nel mese</span><span class="num">${tfr > 0 ? eur(vol + az + tfr) : '—'}</span></div>`;
   const prevSnap = M.P.filter((p) => p.i < idxOf(k)).pop();
   const isCredit = m % 3 === 1;
@@ -711,18 +837,23 @@ function refreshInsCalc() {
 function saveIns() {
   const f = ui.form, k = f.k;
   const base = parseIt(f.base), tfr = parseIt(f.tfr), q = parseIt(f.q), vq = parseIt(f.vq), e = parseIt(f.e);
-  const anyPay = String(f.base).trim() || String(f.tfr).trim();
+  const azT = String(f.az || '').trim(), volT = String(f.vol || '').trim(), az = parseIt(azT), vol = parseIt(volT);
+  const anyPay = String(f.base).trim() || String(f.tfr).trim() || azT || volT;
   const anySnap = String(f.q).trim() || String(f.vq).trim() || String(f.e).trim();
   const fail = (msg) => { f.err = msg; refreshInsCalc(); };
   if (!anyPay && !anySnap) return fail('Inserisci almeno i dati della busta paga o quelli del sito.');
   if (anyPay && !(tfr >= 0 && isFinite(tfr) && String(f.tfr).trim())) return fail('Manca il TFR del mese.');
   if (anyPay && String(f.base).trim() && !(base > 0)) return fail('L\'imponibile non è un numero valido.');
+  if ((azT && !(az >= 0)) || (volT && !(vol >= 0))) return fail('I contributi devono essere numeri (anche 0), oppure vuoti per stimarli.');
+  if (base > 0 && ((az > base * 0.2) || (vol > base * 0.2))) return fail('Un contributo supera il 20% dell\'imponibile: controlla le virgole.');
   if (anySnap && !(q > 0 && vq > 0 && e > 0)) return fail('Per il sito del fondo servono tutti e tre i valori: quote, valore quota e totale versato.');
   if (vq > 1000 || q > 1e7) return fail('I valori del fondo sembrano fuori scala: controlla le virgole.');
   const existed = f.existed;
   if (anyPay) {
     const old = data.bustePaga.find((b) => b.mese === k);
     const row = { mese: k, imponibile: base > 0 ? base : null, tfr };
+    if (azT) row.azienda = az;
+    if (volT) row.volontario = vol;
     if (old && old.aziendaManuale != null && !(base > 0)) row.aziendaManuale = old.aziendaManuale;
     data.bustePaga = data.bustePaga.filter((b) => b.mese !== k).concat([row]).sort((a, b) => a.mese.localeCompare(b.mese));
   }
@@ -914,7 +1045,7 @@ function buildCSV() {
   const keys = [...new Set(data.bustePaga.map((b) => b.mese).concat(data.valorizzazioni.map((v) => v.mese)))].sort();
   const n = (x, d) => (x == null || !isFinite(x) ? '' : Number(x).toFixed(d).replace('.', ','));
   const cell = (s) => { s = String(s == null ? '' : s); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const head = ['mese', 'imponibile', 'tfr', 'aliquota_volontario_%', 'aliquota_azienda_%', 'contributo_volontario', 'contributo_azienda', 'versato_nel_mese',
+  const head = ['mese', 'imponibile', 'tfr', 'aliquota_volontario_%', 'aliquota_azienda_%', 'contributo_volontario', 'contributo_azienda', 'contributi_stimati', 'versato_nel_mese',
     'numero_quote', 'valore_quota', 'totale_versato_fondo', 'valore_posizione', 'rendimento', 'comparto', 'data_valorizzazione'];
   const rows = keys.map((k) => {
     const d = M.months[k], v = V[k], r = rateFor(k);
@@ -923,7 +1054,7 @@ function buildCSV() {
       k,
       d ? n(d.base, 2) : '', d ? n(d.tfr, 2) : '',
       d && d.base != null ? n(r.volontario * 100, 2) : '', d && d.base != null ? n(r.azienda * 100, 2) : '',
-      d ? n(d.vol, 2) : '', d ? n(d.az, 2) : '', d ? n(d.tot, 2) : '',
+      d ? n(d.vol, 2) : '', d ? n(d.az, 2) : '', d ? (d.stimato ? 'si' : 'no') : '', d ? n(d.tot, 2) : '',
       v ? n(v.quote, 3) : '', v ? n(v.valoreQuota, 3) : '', v ? n(v.totaleVersato, 2) : '',
       v ? n(val, 2) : '', v ? n(val - v.totaleVersato, 2) : '',
       v ? (v.comparto || compartoFor(k)) : compartoFor(k), v && v.data ? v.data : ''
@@ -953,6 +1084,7 @@ document.addEventListener('click', (ev) => {
     case 'ins-open': ui.tab = 'inserisci'; ui.insMonth = null; ui.form = null; render(); window.scrollTo(0, 0); break;
     case 'range': ui.range = v; ui.selIdx = null; render(); break;
     case 'year': ui.year = Number(v); render(); break;
+    case 'go-anni': ui.tab = 'anni'; ui.year = Number(v); render(); window.scrollTo(0, 0); break;
     case 'cmp-toggle': ui.cmpOpen = !ui.cmpOpen; render(); break;
     case 'guide-toggle': ui.guideOpen = !ui.guideOpen; render(); break;
     case 'ins-month': ui.tab = 'inserisci'; ui.insMonth = v; ui.form = null; render(); window.scrollTo(0, 0); break;

@@ -1,11 +1,12 @@
 // Quota – service worker: l'app funziona anche offline.
 // Aumentare VERSION a ogni rilascio per aggiornare la cache sui telefoni.
-const VERSION = 'quota-v5';
+const VERSION = 'quota-v6';
 const SHELL = [
   './',
   'index.html',
   'app.css',
   'app.js',
+  'busta-profili.js',
   'busta.js',
   'vendor/pdfjs/pdf.min.js',
   'vendor/pdfjs/pdf.worker.min.js',
