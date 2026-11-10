@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -62,6 +62,43 @@ const dateLabel = (k) => { const { y, m } = parseKey(k); return lastDay(y, m) + 
 const prevMonthLabel = (k, rif) => { const a = parseKey(k); return MESI[a.m - 1] + (a.y !== parseKey(rif).y ? ' ' + a.y : ''); };
 function todayKey() { const d = new Date(); return key(d.getFullYear(), d.getMonth() + 1); }
 
+/* ---------- Giorno di paga e giorni feriali ---------- */
+const GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+// Pasqua (calendario gregoriano, algoritmo di Meeus/Jones/Butcher)
+function easter(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mese = Math.floor((h + l - 7 * m + 114) / 31), giorno = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(y, mese - 1, giorno);
+}
+// Festività nazionali italiane (L. 260/1949 e succ.; 4 ottobre dal 2026, L. 151/2025)
+const FESTE_FISSE = ['01-01', '01-06', '04-25', '05-01', '06-02', '08-15', '11-01', '12-08', '12-25', '12-26'];
+function isFestivo(d) {
+  const y = d.getFullYear(), md = String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  if (FESTE_FISSE.includes(md) || (y >= 2026 && md === '10-04')) return true;
+  const pq = easter(y); pq.setDate(pq.getDate() + 1); // Lunedì dell'Angelo
+  return d.getMonth() === pq.getMonth() && d.getDate() === pq.getDate();
+}
+const isFeriale = (d) => d.getDay() !== 0 && d.getDay() !== 6 && !isFestivo(d);
+function giornoPaga() { const g = data && data.impostazioni ? Number(data.impostazioni.giornoPaga) : 1; return g >= 1 && g <= 31 ? g : 1; }
+// Data in cui la busta paga del mese (y, m) diventa disponibile: il giorno impostato
+// (o l'ultimo del mese, se il mese è più corto), spostato al primo giorno feriale.
+function paydayDate(y, m) {
+  const d = new Date(y, m - 1, Math.min(giornoPaga(), lastDay(y, m)));
+  while (!isFeriale(d)) d.setDate(d.getDate() + 1);
+  return d;
+}
+const dayLabel = (d) => GIORNI[d.getDay()] + ' ' + d.getDate() + ' ' + MESI[d.getMonth()] + (d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() : '');
+// Ultima data di paga già arrivata (indice del mese di arrivo) e la prossima.
+function paydayInfo(now = new Date()) {
+  const oggi = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let i = now.getFullYear() * 12 + now.getMonth();
+  const at = (j) => paydayDate(Math.floor(j / 12), (j % 12) + 1);
+  while (at(i) > oggi) i--;
+  return { arrivo: i, prossima: at(i + 1) };
+}
+
 /* ======================= Stato ======================= */
 let data = null;          // dati personali
 let ref = REF_BUILTIN;    // dati pubblici ufficiali (incorporati o scaricati)
@@ -76,6 +113,7 @@ function emptyData() {
   return {
     formato: 'quota-backup', versione: 1, esportato: null,
     fondo: { nome: 'Previdenza Cooperativa', albo_covip: 170, adesione: 'collettiva', sito: LINK_FONDO, areaRiservata: LINK_AREA },
+    impostazioni: { giornoPaga: 1 },
     comparti: [], aliquote: [], bustePaga: [], valorizzazioni: [], modifiche: {}
   };
 }
@@ -98,6 +136,8 @@ function normalize(d) {
     mese: v.mese, data: v.data || null, quote: Number(v.quote), valoreQuota: Number(v.valoreQuota), totaleVersato: Number(v.totaleVersato), comparto: v.comparto || null
   }));
   out.modifiche = d.modifiche || {};
+  const gp = Math.round(Number(d.impostazioni && d.impostazioni.giornoPaga));
+  out.impostazioni.giornoPaga = gp >= 1 && gp <= 31 ? gp : 1;
   const byKey = (a, b) => (a.dal || a.mese).localeCompare(b.dal || b.mese);
   out.comparti.sort(byKey); out.aliquote.sort(byKey); out.bustePaga.sort(byKey); out.valorizzazioni.sort(byKey);
   if (!out.aliquote.length) out.aliquote.push({ dal: '2000-01', volontario: 0, azienda: 0 });
@@ -218,11 +258,13 @@ function yearsRange(M) {
 }
 
 function pendingMonth(M) {
-  // Il mese da completare è quello precedente a oggi.
-  const k = keyOf(idxOf(todayKey()) - 1);
+  // Il mese da completare è quello dell'ultima busta paga arrivata: la busta di un mese
+  // arriva nel mese dopo, dal giorno di paga (spostato al primo giorno feriale).
+  const P = paydayInfo();
+  const k = keyOf(P.arrivo - 1);
   if (k < M.firstKey) return null;
   const needPay = !M.B[k], needSnap = !M.P.find((p) => p.k === k);
-  return { k, needPay, needSnap, done: !needPay && !needSnap };
+  return { k, needPay, needSnap, done: !needPay && !needSnap, prossima: P.prossima, prossimoMese: keyOf(P.arrivo) };
 }
 
 function comparison(M) {
@@ -417,7 +459,7 @@ function viewHome(M) {
   } else if (pm) {
     html += `<section class="card" style="display:flex;gap:12px;align-items:center">
       <span class="icon-badge" style="background:var(--ok-soft);color:var(--ok)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
-      <div><div class="title">${monthLabel(pm.k)} completato</div><div class="sub">Il prossimo promemoria arriva con la busta paga di ${MESI[parseKey(todayKey()).m - 1]}</div></div>
+      <div><div class="title">${monthLabel(pm.k)} completato</div><div class="sub">Prossimo promemoria ${dayLabel(pm.prossima)}, con la busta paga di ${prevMonthLabel(pm.prossimoMese, todayKey())}</div></div>
     </section>`;
   }
 
@@ -914,16 +956,20 @@ function viewImpostazioni(M) {
 
     <h3 class="group">Promemoria</h3>
     <section class="card flush" style="margin-top:0">
+      <div class="field"><label for="s-paga">Giorno di paga</label><select id="s-paga" data-act="giorno-paga">${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}" ${i + 1 === giornoPaga() ? 'selected' : ''}>${i + 1} del mese</option>`).join('')}</select></div>
+      <div class="row"><div class="row-meta">Prossima busta paga attesa ${dayLabel(paydayInfo().prossima)}</div></div>
       <button type="button" class="listlink" data-act="guide-toggle" aria-expanded="${ui.guideOpen}">${ui.guideOpen ? 'Nascondi la guida' : 'Come attivare il promemoria mensile'}</button>
       ${ui.guideOpen ? `<div class="details" style="padding:4px 18px 16px">
         <div>Le web app non possono mandare promemoria da sole: li fa <b>Comandi Rapidi</b> di iOS, gratis.</div>
         <div><b>1.</b> Apri l'app Comandi › Automazione › Nuova automazione › <b>Ora del giorno</b>.</div>
-        <div><b>2.</b> Scegli <b>Mensilmente</b>, il giorno in cui di solito arriva la busta paga, e un orario.</div>
+        <div><b>2.</b> Scegli <b>Mensilmente</b>, il giorno di paga (${giornoPaga()}) e un orario. La notifica arriva sempre quel giorno, anche se è festivo: la card in Panoramica invece compare dal primo giorno feriale.</div>
         <div><b>3.</b> Seleziona <b>Esegui immediatamente</b> e attiva <b>Notifica quando eseguito</b>.</div>
         <div><b>4.</b> Come azione aggiungi <b>Apri URL</b> con l'indirizzo dell'app: <span class="num" style="word-break:break-all">${esc(location.origin + location.pathname)}</span></div>
         <div>Ripeti per l'ultimo giorno del mese, quando il fondo pubblica il valore quota.</div>
       </div>` : ''}
     </section>
+
+    <div class="note">Quota ti chiede i dati del mese dal giorno di paga. Se cade di sabato, domenica o in un giorno festivo, dal primo giorno feriale successivo.${giornoPaga() > 28 ? ' Nei mesi più corti vale l\'ultimo giorno del mese.' : ''}</div>
 
     <h3 class="group">Privacy e dati</h3>
     <section class="card flush" style="margin-top:0">
@@ -1112,6 +1158,7 @@ document.addEventListener('change', (ev) => {
   if (t.dataset.act === 'import' && t.files && t.files[0]) { importFile(t.files[0]); t.value = ''; }
   if (t.dataset.act === 'busta-pdf' && t.files && t.files[0]) { const file = t.files[0]; t.value = ''; readBusta(file); }
   if (t.dataset.act === 'ins-select') { ui.insMonth = t.value; ui.form = null; render(); }
+  if (t.dataset.act === 'giorno-paga' && data) { data.impostazioni.giornoPaga = Number(t.value); persist(); ui.insMonth = null; ui.form = null; render(); }
   if (t.dataset.s && ui.sheet) { ui.sheet[t.dataset.s] = t.value; }
 });
 let resizeT = null;

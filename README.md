@@ -32,6 +32,9 @@ Per un modello nuovo: copia il profilo esistente in `busta-profili.js`, cambia `
 ## Spazio deducibile
 In Panoramica la card **Spazio deducibile** somma contributo volontario e contributo azienda dell'anno (per mese di competenza della busta paga; il TFR non conta) e li confronta con il limite di legge. Il limite è in `data/riferimenti.json` › `deducibilita.limiti` (chiave = anno da cui vale): 5.164,57 € fino al 2025, 5.300 € dal 2026. Da metà novembre la card ricorda quanto si può ancora versare entro il 31 dicembre. Il dettaglio per anno è in Anni › Deducibilità.
 
+## Giorno di paga
+Impostazioni › Promemoria › **Giorno di paga** (1–31, salvato anche nel backup). La card "da completare" in Panoramica compare solo da quel giorno; se cade di sabato, domenica o festivo, dal primo giorno feriale successivo. Nei mesi più corti vale l'ultimo giorno del mese. Festivi considerati: 1 e 6 gennaio, Lunedì dell'Angelo (calcolato), 25 aprile, 1 maggio, 2 giugno, 15 agosto, 4 ottobre (dal 2026, L. 151/2025), 1 novembre, 8, 25 e 26 dicembre. Le notifiche di Comandi Rapidi restano a giorno fisso.
+
 ## Privacy
 - Tutti i dati personali restano **solo nel telefono** (memoria locale del browser). Nessun server, nessun account.
 - In questo repository **non vanno mai caricati** file con dati personali (backup, storico).
