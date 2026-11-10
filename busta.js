@@ -2,22 +2,30 @@
    Tutto avviene nel telefono: il PDF non viene caricato da nessuna parte né conservato.
    La lettura del testo usa pdf.js (Mozilla, licenza Apache 2.0) in vendor/pdfjs/, caricato solo quando serve.
 
-   Tarato sul cedolino Inaz (Stampe.net):
-   - Imponibile = colonna "Dato Base" della voce 721 (Ctr.Filcoop, riga "*** c/Azienda")
-   - TFR        = colonna "Dato Base" della voce 786 (Smobil.% su Tfr)
-   - Mese       = "MESE E PERIODO COMPETENZA"
+   Il motore è generico: trasforma il PDF in righe e colonne, poi legge i dati seguendo un "profilo"
+   (busta-profili.js) che dice dove si trova ogni voce in quel modello di cedolino.
+   Per un modello nuovo si aggiunge un profilo, senza toccare questo file.
    Nel codice ci sono solo etichette e codici voce, mai dati personali. */
 (function (root) {
   'use strict';
 
-  const VOCI = { imponibile: '721', tfr: '786' };
   const RE_IMPORTO = /^\d{1,3}(?:\.\d{3})*,\d{2}-?$|^\d+,\d{2}-?$/;
   const RE_PERC = /^\d+,\d{3,5}$/;
   const RE_CODICE = /^[0-9A-Z]{3,5}$/;
+  const CAMPI = ['imponibile', 'azienda', 'volontario', 'tfr'];
+  const NOMI = { imponibile: 'imponibile', azienda: 'contributo azienda', volontario: 'contributo volontario', tfr: 'TFR al fondo' };
 
   const toNum = (s) => Number(String(s).replace(/-$/, '').replace(/\./g, '').replace(',', '.'));
   const isImporto = (t) => RE_IMPORTO.test(t.s);
   const cx = (t) => t.x + t.w / 2;
+  const norm = (s) => String(s).toLowerCase().replace(/\s+/g, '');
+  const testoRiga = (r) => norm(r.t.map((w) => w.s).join(''));
+  const percTxt = (p) => String(p).replace('.', ',') + '%';
+
+  function profiliDisponibili() {
+    if (root.QuotaProfili) return root.QuotaProfili;
+    try { return require('./busta-profili.js'); } catch (e) { return []; }
+  }
 
   /* Spezza ogni pezzo di testo in parole, stimando la posizione di ciascuna. */
   function words(items) {
@@ -50,22 +58,30 @@
     return RE_CODICE.test(t[0].s) && /\d/.test(t[0].s) ? t[0].s : null;
   }
 
-  /* Centri orizzontali delle colonne numeriche, letti dall'intestazione della tabella. */
-  function colonne(rs) {
-    for (const r of rs) {
-      const t = r.t, i = t.findIndex((w, j) => w.s === 'Dato' && t[j + 1] && t[j + 1].s === 'Base');
-      if (i < 0) continue;
-      const c = { base: (t[i].x + t[i + 1].x + t[i + 1].w) / 2 };
-      const f = t.findIndex((w, j) => w.s === 'Dato' && t[j + 1] && t[j + 1].s === 'Figurativo');
-      if (f >= 0) c.fig = (t[f].x + t[f + 1].x + t[f + 1].w) / 2;
-      const k = t.find((w) => /^Competenze/.test(w.s)); if (k) c.comp = cx(k);
-      return c;
+  /* Cerca un'intestazione di più parole consecutive nella riga; restituisce il centro orizzontale. */
+  function centroFrase(t, frase) {
+    const parole = frase.toLowerCase().split(/\s+/);
+    for (let i = 0; i + parole.length <= t.length; i++) {
+      if (parole.every((p, j) => t[i + j].s.toLowerCase().includes(p))) {
+        const a = t[i], b = t[i + parole.length - 1];
+        return (a.x + b.x + b.w) / 2;
+      }
     }
     return null;
   }
 
+  /* Centri delle colonne numeriche, letti dalla riga di intestazione che ne contiene di più. */
+  function colonne(rs, spec) {
+    let best = null, nBest = 0;
+    for (const r of rs) {
+      const c = {}; let n = 0;
+      for (const k in spec) { const x = centroFrase(r.t, spec[k]); if (x != null) { c[k] = x; n++; } }
+      if (n > nBest) { best = c; nBest = n; }
+    }
+    return nBest >= 2 ? best : null;
+  }
+
   function colonnaDi(tok, col) {
-    if (!col) return null;
     let best = null, d = Infinity;
     for (const k in col) { const dd = Math.abs(cx(tok) - col[k]); if (dd < d) { d = dd; best = k; } }
     return best;
@@ -80,28 +96,33 @@
     return out;
   }
 
-  /* Legge una voce: Dato Base (preferendo la riga "c/Azienda"), percentuale e importo per il controllo. */
-  function voce(rs, codice, col, preferisci) {
-    const b = blocco(rs, codice); if (!b) return null;
-    const ordinati = preferisci ? b.slice().sort((r1, r2) => (r2.t.some((w) => preferisci.test(w.s)) ? 1 : 0) - (r1.t.some((w) => preferisci.test(w.s)) ? 1 : 0)) : b;
-    for (const r of ordinati) {
+  /* Legge un campo seguendo il profilo: voce → riga → colonna. */
+  function leggiCampo(rs, col, spec) {
+    const b = blocco(rs, spec.voce); if (!b) return null;
+    let righe = b;
+    if (spec.riga) {
+      const t = norm(spec.riga), giuste = b.filter((r) => testoRiga(r).includes(t));
+      righe = giuste.length ? giuste : b;
+    }
+    for (const r of righe) {
       const imp = r.t.filter(isImporto);
       if (!imp.length) continue;
-      let base = col ? imp.find((w) => colonnaDi(w, col) === 'base') : null;
-      if (!base) base = imp.find((w) => !/-$/.test(w.s)); // senza intestazioni: primo importo senza segno
-      if (!base) continue;
-      const perc = r.t.find((w) => RE_PERC.test(w.s) && w.x < base.x);
-      const altro = imp.find((w) => w !== base);
-      return { valore: toNum(base.s), perc: perc ? toNum(perc.s) : null, importo: altro ? toNum(altro.s) : null };
+      let tok = null;
+      if (col) for (const c of spec.colonne || []) { tok = imp.find((w) => colonnaDi(w, col) === c); if (tok) break; }
+      else if (spec.senzaIntestazioni === 'primo') tok = imp.find((w) => !/-$/.test(w.s));
+      else if (spec.senzaIntestazioni === 'ultimo') tok = imp[imp.length - 1];
+      if (!tok) continue;
+      const perc = r.t.find((w) => RE_PERC.test(w.s) && w.x < tok.x);
+      return { valore: toNum(tok.s), perc: perc ? toNum(perc.s) : null };
     }
     return null;
   }
 
-  /* Mese e anno di competenza: due token "MM" e "AAAA" vicini, sotto "PERIODO COMPETENZA". */
-  function periodo(rs) {
-    const hi = rs.findIndex((r) => r.t.some((w) => w.s === 'COMPETENZA'));
+  /* Mese e anno di competenza: due token "MM" e "AAAA" vicini, sotto l'etichetta del profilo. */
+  function periodo(rs, etichetta) {
+    const hi = rs.findIndex((r) => r.t.some((w) => w.s === etichetta));
     const cand = hi >= 0 ? rs.slice(hi, hi + 4) : rs;
-    const hx = hi >= 0 ? rs[hi].t.find((w) => w.s === 'COMPETENZA').x : null;
+    const hx = hi >= 0 ? rs[hi].t.find((w) => w.s === etichetta).x : null;
     let best = null;
     for (const r of cand) {
       for (let i = 0; i < r.t.length - 1; i++) {
@@ -116,36 +137,46 @@
     return best ? { m: best.m, y: best.y } : null;
   }
 
+  /* Sceglie il profilo il cui testo di riconoscimento compare di più nel PDF. */
+  function scegliProfilo(pages, profili) {
+    const testo = norm(pages.map((p) => p.map((it) => it.s).join(' ')).join(' '));
+    let best = null, punti = -1;
+    for (const p of profili) {
+      const n = (p.riconoscimento || []).filter((s) => testo.includes(norm(s))).length;
+      if (n > punti) { best = p; punti = n; }
+    }
+    return best ? { p: best, certo: punti === (best.riconoscimento || []).length, punti } : null;
+  }
+
   /* pages: [[{s, x, y, w}]] con y dall'alto verso il basso. */
-  function parse(pages) {
-    const res = { mese: null, mensilita: null, imponibile: null, tfr: null, controlli: [], avvisi: [] };
+  function parse(pages, profili) {
+    const res = { profilo: null, mese: null, mensilita: null, imponibile: null, azienda: null, volontario: null, tfr: null, perc: {}, controlli: [], avvisi: [] };
+    const sc = scegliProfilo(pages, profili || profiliDisponibili());
+    if (!sc) { res.avvisi.push('Nessun modello di busta paga configurato.'); return res; }
+    const P = sc.p;
+    res.profilo = { id: P.id, nome: P.nome, certo: sc.certo };
+    if (!sc.punti) res.avvisi.push('Modello di busta paga non riconosciuto: provo a leggerla come "' + P.nome + '". Controlla bene i valori.');
     for (const items of pages) {
-      const rs = rows(words(items)), col = colonne(rs);
+      const rs = rows(words(items)), col = colonne(rs, P.colonne || {});
       if (!res.mese && !res.mensilita) {
-        const p = periodo(rs);
+        const p = periodo(rs, P.periodo || 'COMPETENZA');
         if (p) { if (p.m > 12) res.mensilita = { n: p.m, y: p.y }; else res.mese = p.y + '-' + String(p.m).padStart(2, '0'); }
       }
-      if (res.imponibile == null) {
-        const v = voce(rs, VOCI.imponibile, col, /c\/Azienda/);
-        if (v) {
-          res.imponibile = v.valore;
-          if (v.perc != null && v.importo != null) {
-            const atteso = Math.round(v.valore * v.perc) / 100;
-            if (Math.abs(atteso - v.importo) <= 0.02) res.controlli.push('Imponibile verificato: ' + String(v.perc).replace('.', ',') + '% = contributo azienda in busta.');
-            else res.avvisi.push('L\'imponibile letto non torna con il contributo azienda in busta: ricontrolla il valore.');
-          }
-        }
-      }
-      if (res.tfr == null) {
-        const v = voce(rs, VOCI.tfr, col);
-        if (v) {
-          res.tfr = v.valore;
-          if (v.importo != null && Math.abs(v.importo - v.valore) > 0.01 && v.perc === 100) res.avvisi.push('Il TFR letto non coincide con l\'importo della voce ' + VOCI.tfr + ': ricontrolla il valore.');
-        }
+      for (const c of CAMPI) {
+        if (res[c] != null || !P.campi[c]) continue;
+        const v = leggiCampo(rs, col, P.campi[c]);
+        if (v) { res[c] = v.valore; if (v.perc != null) res.perc[c] = v.perc; }
       }
     }
-    if (res.imponibile == null) res.avvisi.push('Voce ' + VOCI.imponibile + ' (imponibile) non trovata.');
-    if (res.tfr == null) res.avvisi.push('Voce ' + VOCI.tfr + ' (TFR al fondo) non trovata.');
+    // Controllo interno: la percentuale stampata in busta torna con l'importo?
+    for (const c of ['azienda', 'volontario']) {
+      const p = res.perc[c];
+      if (res[c] == null || res.imponibile == null || p == null) continue;
+      const atteso = Math.round(res.imponibile * p) / 100;
+      if (Math.abs(atteso - res[c]) <= 0.02) res.controlli.push(NOMI[c].charAt(0).toUpperCase() + NOMI[c].slice(1) + ' verificato: ' + percTxt(p) + ' dell\'imponibile.');
+      else res.avvisi.push('Il ' + NOMI[c] + ' letto non torna con il ' + percTxt(p) + ' dell\'imponibile: ricontrolla il valore.');
+    }
+    for (const c of CAMPI) if (P.campi[c] && res[c] == null) res.avvisi.push(NOMI[c].charAt(0).toUpperCase() + NOMI[c].slice(1) + ' (voce ' + P.campi[c].voce + ') non letto.');
     if (!res.mese && !res.mensilita) res.avvisi.push('Mese di competenza non trovato.');
     return res;
   }
@@ -193,6 +224,6 @@
     } finally { doc.destroy(); }
   }
 
-  const api = { parse, readPdf, VOCI };
+  const api = { parse, readPdf, profili: profiliDisponibili };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.QuotaBusta = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

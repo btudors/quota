@@ -1,7 +1,14 @@
 {
   "formato": "quota-riferimenti",
-  "versione": "2026-11-08",
-  "aggiornato": "2026-11-08",
+  "versione": "2026-11-10",
+  "aggiornato": "2026-11-10",
+  "deducibilita": {
+    "fonte": "D.Lgs. 252/2005 art. 8 c. 4, come modificato dalla Legge 199/2025 (Bilancio 2026)",
+    "limiti": {
+      "2007": 5164.57,
+      "2026": 5300
+    }
+  },
   "tfr": {
     "fonte": "ISTAT, indice FOI. Coefficiente % sul TFR accantonato al 31/12 dell'anno precedente (1,5% annuo in proporzione + 75% dell'inflazione)",
     "imposta": 0.17,
