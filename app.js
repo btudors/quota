@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -57,6 +57,8 @@ const keyOf = (i) => key(Math.floor(i / 12), (i % 12) + 1);
 const lastDay = (y, m) => new Date(y, m, 0).getDate();
 const monthLabel = (k) => { const { y, m } = parseKey(k); return cap(MESI[m - 1]) + ' ' + y; };
 const dateLabel = (k) => { const { y, m } = parseKey(k); return lastDay(y, m) + ' ' + MESI[m - 1] + ' ' + y; };
+// "settembre" se è lo stesso anno di rif, altrimenti "dicembre 2025"
+const prevMonthLabel = (k, rif) => { const a = parseKey(k); return MESI[a.m - 1] + (a.y !== parseKey(rif).y ? ' ' + a.y : ''); };
 function todayKey() { const d = new Date(); return key(d.getFullYear(), d.getMonth() + 1); }
 
 /* ======================= Stato ======================= */
@@ -321,7 +323,10 @@ function heroTexts(sel, isLatest) {
 
 function viewHome(M) {
   const pm = pendingMonth(M);
-  let html = `<div class="head"><div class="eyebrow">${esc(data.fondo.nome)}${M.last ? ' · ' + esc(M.last.c) : ''}</div><h1>Panoramica</h1></div>`;
+  let html = `<div class="head"><div class="eyebrow">${esc(data.fondo.nome)}${M.last ? ' · ' + esc(M.last.c) : ''}</div>
+    <div class="title-row"><h1>Panoramica</h1>
+      <button type="button" class="addbtn" data-act="ins-open" aria-label="Inserisci i dati del mese"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Inserisci</span></button>
+    </div></div>`;
 
   // Hero
   const G = chartGeom(M);
@@ -596,7 +601,7 @@ function viewInserisci(M) {
       <div class="field"><label for="i-tfr">TFR del mese</label><input id="i-tfr" inputmode="decimal" autocomplete="off" data-f="tfr" value="${esc(f.tfr)}" placeholder="${lastB ? esc(num(lastB.tfr, 2)) : '0,00'}"></div>
       <div class="calc" id="calc-pay"></div>
     </section>
-    <div class="note">In grigio i valori ${lastB ? 'di ' + MESI[parseKey(lastB.mese).m - 1] : 'precedenti'}. Volontario e azienda si calcolano con le aliquote in vigore in quel mese, che cambi in Impostazioni.</div>
+    <div class="note"><span id="ph-pay"></span>Volontario e azienda si calcolano con le aliquote in vigore in quel mese, che cambi in Impostazioni.</div>
     <h3 class="group">2 · Dal sito del fondo</h3>
     <section class="card flush" style="margin-top:0">
       ${extLink(LINK_AREA, '<span>Apri l\'area riservata</span>' + ICON_EXT, 'listlink')}
@@ -607,7 +612,7 @@ function viewInserisci(M) {
       <div class="calc" id="calc-snap"></div>
       <div id="calc-check"></div>
     </section>
-    ${prevSnap ? '<div class="note">In grigio i valori di ' + MESI[parseKey(prevSnap.k).m - 1] + ' ' + parseKey(prevSnap.k).y + '.</div>' : ''}
+    <div class="note" id="ph-snap" hidden></div>
     <div id="ins-err"></div>
     <div style="margin:20px 16px 0"><button type="button" class="btn primary big" data-act="ins-save" id="ins-save">Salva ${MESI[parseKey(k).m - 1]}</button></div>`;
 }
@@ -680,6 +685,14 @@ function refreshInsCalc() {
   const val = q > 0 && vq > 0 ? q * vq : 0;
   if (snap) snap.innerHTML = `<div class="strong"><span>Valore della posizione</span><span class="num">${val ? eur(val) : '—'}</span></div>
     <div><span>Rendimento</span><span class="num">${val && e > 0 ? eurS(val - e) + ' · ' + pct((val - e) / e) : '—'}</span></div>`;
+  // Nota "In grigio…": solo se un campo vuoto mostra davvero il valore di un mese precedente.
+  const empty = (x) => !String(x == null ? '' : x).trim();
+  const lastB = data.bustePaga.filter((b) => b.mese < k).pop();
+  const payGrey = lastB && ((empty(f.base) && lastB.imponibile != null) || empty(f.tfr));
+  const snapGrey = prevSnap && (empty(f.q) || empty(f.vq) || empty(f.e));
+  const phPay = $('#ph-pay'), phSnap = $('#ph-snap');
+  if (phPay) phPay.textContent = payGrey ? 'In grigio i valori di ' + prevMonthLabel(lastB.mese, k) + '. ' : '';
+  if (phSnap) { phSnap.hidden = !snapGrey; phSnap.textContent = snapGrey ? 'In grigio i valori di ' + prevMonthLabel(prevSnap.k, k) + '.' : ''; }
   const chk = $('#calc-check'); let out = '';
   if (e > 0 && prevSnap) {
     const cred = e - prevSnap.e;
@@ -937,6 +950,7 @@ document.addEventListener('click', (ev) => {
   if (act === 'sheet-scrim' && ev.target !== el) return;
   switch (act) {
     case 'tab': ui.tab = v; if (v === 'inserisci') { ui.insMonth = null; ui.form = null; } render(); window.scrollTo(0, 0); break;
+    case 'ins-open': ui.tab = 'inserisci'; ui.insMonth = null; ui.form = null; render(); window.scrollTo(0, 0); break;
     case 'range': ui.range = v; ui.selIdx = null; render(); break;
     case 'year': ui.year = Number(v); render(); break;
     case 'cmp-toggle': ui.cmpOpen = !ui.cmpOpen; render(); break;
