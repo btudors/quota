@@ -35,6 +35,16 @@ In Panoramica la card **Spazio deducibile** somma contributo volontario e contri
 ## Giorno di paga
 Impostazioni › Promemoria › **Giorno di paga** (1–31, salvato anche nel backup). La card "da completare" in Panoramica compare solo da quel giorno; se cade di sabato, domenica o festivo, dal primo giorno feriale successivo. Nei mesi più corti vale l'ultimo giorno del mese. Festivi considerati: 1 e 6 gennaio, Lunedì dell'Angelo (calcolato), 25 aprile, 1 maggio, 2 giugno, 15 agosto, 4 ottobre (dal 2026, L. 151/2025), 1 novembre, 8, 25 e 26 dicembre. Le notifiche di Comandi Rapidi restano a giorno fisso.
 
+## Modalità privata
+In Panoramica e in Anni il pulsante a **occhio** nasconde tutti gli importi: per mostrare l'app a qualcuno senza far vedere quanto c'è nel fondo. L'app resta come l'hai lasciata anche dopo averla chiusa.
+- Al posto degli euro: rendimento %, quanto il fondo batte il TFR in azienda, confronto con fondi aperti e PIP in base 100, composizione "su ogni 100 € versati", spazio deducibile in % del limite.
+- Restano visibili valore quota e costi del comparto (dati pubblici del fondo); il numero di quote no.
+- Inserisci, Impostazioni, backup ed export non sono raggiungibili finché la modalità è attiva.
+- Tecnica: ogni importo passa da `eur()`/`eurS()`, che in modalità privata restituiscono sempre `€ •••••` (5 pallini, mai il numero di cifre vero). Nuove schermate: usare sempre questi formattatori, mai `num()` per importi.
+
+## Ogni 1 € di tasca tua
+Card in Panoramica: (contributo volontario + contributo azienda + rendimento maturato su questi due) ÷ (contributo volontario − IRPEF risparmiata con la deduzione). Il TFR e il suo rendimento restano fuori: sarebbero tuoi comunque. La deduzione conta il volontario fino al limite dell'anno (dopo il contributo azienda), all'aliquota dello scaglione scelto in Impostazioni › Tasse (`data/riferimenti.json` › `irpef.aliquote`, chiave = anno da cui vale).
+
 ## Privacy
 - Tutti i dati personali restano **solo nel telefono** (memoria locale del browser). Nessun server, nessun account.
 - In questo repository **non vanno mai caricati** file con dati personali (backup, storico).

@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -20,7 +20,7 @@ const INIZ = ['G', 'F', 'M', 'A', 'M', 'G', 'L', 'A', 'S', 'O', 'N', 'D'];
 
 // Dati pubblici incorporati: l'app funziona anche se il download non riesce.
 const REF_BUILTIN = {
-  formato: 'quota-riferimenti', versione: '2026-11-10', aggiornato: '2026-11-10',
+  formato: 'quota-riferimenti', versione: '2026-11-11', aggiornato: '2026-11-11',
   deducibilita: { fonte: 'D.Lgs. 252/2005 art. 8 c. 4, come modificato dalla Legge 199/2025 (Bilancio 2026)', limiti: { '2007': 5164.57, '2026': 5300 } },
   tfr: { fonte: 'ISTAT, indice FOI', imposta: 0.17, coefficienti: {
     '2024-12': 2.320017,
@@ -28,6 +28,7 @@ const REF_BUILTIN = {
     '2025-07': 1.873336, '2025-08': 1.998336, '2025-09': 2.060940, '2025-10': 1.998752, '2025-11': 2.061356, '2025-12': 2.311148,
     '2026-01': 0.363025, '2026-02': 0.862716, '2026-03': 1.437346, '2026-04': 2.311728, '2026-05': 2.661543, '2026-06': 2.786543,
     '2026-07': 3.136358, '2026-08': 3.710988, '2026-09': 4.285617 } },
+  irpef: { fonte: 'TUIR art. 11, come modificato dalla Legge 199/2025 (Bilancio 2026)', aliquote: { '2024': [0.23, 0.35, 0.43], '2026': [0.23, 0.33, 0.43] } },
   isc: { anno: 2025, fonte: 'COVIP, Relazione annuale 2025: ISC medio a 10 anni', fondiAperti: 0.0136, pip: 0.0217, fondiNegoziali: 0.0047 },
   fondo: { nome: 'Previdenza Cooperativa', fonte: 'Previdenza Cooperativa, scheda costi: ISC a 10 anni', iscComparti: { Sicuro: 0.0067, Bilanciato: 0.0038, Dinamico: 0.0027 } }
 };
@@ -36,8 +37,15 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const thousands = (s) => s.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 function num(n, d) { const p = Math.abs(n).toFixed(d).split('.'); return (n < 0 && Math.abs(n) >= Math.pow(10, -d) / 2 ? '−' : '') + thousands(p[0]) + (p[1] ? ',' + p[1] : ''); }
-function eur(n, d = 2) { return num(n, d) + ' €'; }
-function eurS(n, d = 2) { return (n >= 0 ? '+' : '') + eur(n, d); }
+/* Modalità privata: ogni importo passa da eur()/eurS(). Con la modalità attiva restituiscono
+   sempre lo stesso numero di pallini (mai quante cifre ha l'importo vero). Le viste mostrano
+   al loro posto percentuali e rapporti; il mascheramento qui è la rete di sicurezza. */
+const MASK = '€ •••••';
+const priv = () => ui.priv === true;
+function eur(n, d = 2) { return priv() ? MASK : num(n, d) + ' €'; }
+function eurS(n, d = 2) { return priv() ? MASK : (n >= 0 ? '+' : '') + eur(n, d); }
+// Quota percentuale intera ("37%"), per le parti di un totale.
+function pq(x) { return isFinite(x) ? Math.round(x * 100) + '%' : '—'; }
 function pct(x, d = 1) { const v = x * 100; return (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d).replace('.', ',') + '%'; }
 function pctPlain(x, d = 2) { return (x * 100).toFixed(d).replace('.', ',') + '%'; }
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
@@ -103,17 +111,19 @@ function paydayInfo(now = new Date()) {
 let data = null;          // dati personali
 let ref = REF_BUILTIN;    // dati pubblici ufficiali (incorporati o scaricati)
 let refUser = null;       // eventuali valori inseriti dall'utente
-const ui = { tab: 'home', range: 'all', selIdx: null, year: null, insMonth: null, form: null, cmpOpen: false, sheet: null, guideOpen: false };
+const ui = { priv: false, tab: 'home', range: 'all', selIdx: null, year: null, insMonth: null, form: null, cmpOpen: false, sheet: null, guideOpen: false };
 
 function loadJSON(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { toast('Impossibile salvare: memoria del browser non disponibile'); return false; } }
 function persist() { if (data) saveJSON(STORE_KEY, data); }
+// Preferenze dell'app (non fanno parte del backup): la modalità privata resta com'era all'ultima chiusura.
+function savePref() { saveJSON(PREF_KEY, { privata: ui.priv }); }
 
 function emptyData() {
   return {
     formato: 'quota-backup', versione: 1, esportato: null,
     fondo: { nome: 'Previdenza Cooperativa', albo_covip: 170, adesione: 'collettiva', sito: LINK_FONDO, areaRiservata: LINK_AREA },
-    impostazioni: { giornoPaga: 1 },
+    impostazioni: { giornoPaga: 1, scaglioneIrpef: 2 },
     comparti: [], aliquote: [], bustePaga: [], valorizzazioni: [], modifiche: {}
   };
 }
@@ -138,6 +148,8 @@ function normalize(d) {
   out.modifiche = d.modifiche || {};
   const gp = Math.round(Number(d.impostazioni && d.impostazioni.giornoPaga));
   out.impostazioni.giornoPaga = gp >= 1 && gp <= 31 ? gp : 1;
+  const sc = Math.round(Number(d.impostazioni && d.impostazioni.scaglioneIrpef));
+  out.impostazioni.scaglioneIrpef = sc >= 1 && sc <= 3 ? sc : 2;
   const byKey = (a, b) => (a.dal || a.mese).localeCompare(b.dal || b.mese);
   out.comparti.sort(byKey); out.aliquote.sort(byKey); out.bustePaga.sort(byKey); out.valorizzazioni.sort(byKey);
   if (!out.aliquote.length) out.aliquote.push({ dal: '2000-01', volontario: 0, azienda: 0 });
@@ -148,6 +160,7 @@ function normalize(d) {
 function effRef() {
   const r = JSON.parse(JSON.stringify(ref));
   if (!r.deducibilita) r.deducibilita = REF_BUILTIN.deducibilita;
+  if (!r.irpef) r.irpef = REF_BUILTIN.irpef;
   if (refUser) {
     if (refUser.isc) Object.assign(r.isc, refUser.isc);
     if (refUser.iscComparti) Object.assign(r.fondo.iscComparti, refUser.iscComparti);
@@ -307,6 +320,39 @@ function comparison(M) {
   };
 }
 
+/* Aliquota IRPEF del proprio scaglione (Impostazioni) in vigore nell'anno y. */
+function aliquotaIrpef(y) {
+  const A = effRef().irpef.aliquote; let v = null;
+  for (const k of Object.keys(A).sort()) if (Number(k) <= y) v = A[k];
+  if (!v) v = A[Object.keys(A).sort()[0]];
+  return v[(data.impostazioni.scaglioneIrpef || 2) - 1];
+}
+/* "Ogni 1 € di tasca tua": quanto vale oggi nel fondo ogni euro di contributo volontario,
+   al netto dell'IRPEF risparmiata con la deduzione. Il TFR resta fuori (sarebbe tuo comunque),
+   e del rendimento conta solo la parte maturata su volontario + azienda. */
+function moltiplicatore(M, C) {
+  if (!M.last || !C) return null;
+  const D = M.last.i;
+  let vol = 0, az = 0, tot = 0, risp = 0;
+  const anni = {};
+  for (const k in M.months) {
+    if (idxOf(k) > D) continue;
+    const d = M.months[k], y = parseKey(k).y;
+    vol += d.vol; az += d.az; tot += d.tot;
+    anni[y] = anni[y] || { vol: 0, az: 0 }; anni[y].vol += d.vol; anni[y].az += d.az;
+  }
+  // Deduzione: il volontario conta fino al limite dell'anno, dopo il contributo azienda.
+  for (const y in anni) {
+    const lim = limiteDeducibile(Number(y)); if (lim == null) continue;
+    risp += Math.min(anni[y].vol, Math.max(0, lim - anni[y].az)) * aliquotaIrpef(Number(y));
+  }
+  const tasca = vol - risp;
+  if (vol < 1 || tasca < 1 || tot < 1) return null;
+  const rend = (C.own - tot) * ((vol + az) / tot);
+  const x = (vol + az + rend) / tasca;
+  return { x, vol, az, risp, tasca, rend, oggi: vol + az + rend, irpef: risp / tasca, azienda: az / tasca, rendimento: rend / tasca };
+}
+
 /* ======================= Link esterni (sempre nel browser del telefono) ======================= */
 function isStandalone() { return window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches; }
 function isIOS() { return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
@@ -315,10 +361,25 @@ function extLink(u, inner, cls = '', style = '') { return `<a class="${cls}" sty
 const ICON_EXT = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 
 /* ======================= Viste ======================= */
+// In modalità privata si vedono solo Panoramica e Anni: niente inserimento, impostazioni o export.
+const PRIV_TABS = ['home', 'anni'];
+const ICON_EYE = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICON_EYE_OFF = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.1 3.9"/><path d="M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+// Etichetta accanto al sopratitolo, così il titolo grande resta intero anche sugli schermi stretti.
+function privPill() { return priv() ? '<span class="privpill">Modalità privata</span>' : ''; }
+// Pulsante a occhio nelle intestazioni di Panoramica e Anni.
+function privBtn() {
+  return priv()
+    ? `<button type="button" class="eyebtn on" data-act="priv" aria-pressed="true" aria-label="Mostra gli importi">${ICON_EYE_OFF}</button>`
+    : `<button type="button" class="eyebtn" data-act="priv" aria-pressed="false" aria-label="Nascondi gli importi">${ICON_EYE}</button>`;
+}
 function render() {
   const app = $('#app'), tab = $('#tabbar');
   if (!data) { tab.hidden = true; app.innerHTML = viewWelcome(); return; }
   tab.hidden = false;
+  if (priv() && !PRIV_TABS.includes(ui.tab)) ui.tab = 'home';
+  if (priv()) ui.sheet = null;
+  document.body.classList.toggle('privata', priv());
   const M = model();
   const views = { home: viewHome, anni: viewAnni, inserisci: viewInserisci, impostazioni: viewImpostazioni };
   app.innerHTML = (views[ui.tab] || viewHome)(M);
@@ -331,11 +392,12 @@ function render() {
 function tabbarHTML() {
   const t = (id, label, icon) => `<button type="button" data-act="tab" data-v="${id}" ${ui.tab === id ? 'aria-current="page"' : ''}>${icon}${label}</button>`;
   const ic = (p) => `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+  const show = (id, html) => !priv() || PRIV_TABS.includes(id) ? html : '';
   return '<div class="inner">' +
     t('home', 'Panoramica', ic('<path d="M3 17l5-5 4 4 8-8"/><path d="M15 8h5v5"/>')) +
     t('anni', 'Anni', ic('<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>')) +
-    t('inserisci', 'Inserisci', ic('<circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/>')) +
-    t('impostazioni', 'Impostazioni', ic('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>')) +
+    show('inserisci', t('inserisci', 'Inserisci', ic('<circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/>'))) +
+    show('impostazioni', t('impostazioni', 'Impostazioni', ic('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'))) +
     '</div>';
 }
 
@@ -387,8 +449,18 @@ function chartGeom(M) {
   return { pts, W, H, X, Y, line, gap, step, area, hasGap, switches, labels };
 }
 
-function heroTexts(sel, isLatest) {
+function heroTexts(sel, isLatest, M) {
   const g = sel.v - sel.e;
+  if (priv()) {
+    // Nessun importo: rendimento sul versato e, sull'ultimo mese, il confronto con il TFR in azienda.
+    const C = isLatest ? comparison(M) : null;
+    let chip = 'sul versato';
+    if (C && C.tfr > 0) { const d = C.own / C.tfr - 1; chip = d >= 0 ? 'Il fondo batte il TFR del ' + pct(d).slice(1) : 'Il TFR in azienda è avanti del ' + pct(-d).slice(1); }
+    return {
+      value: pct(g / sel.e), chip, when: 'al ' + dateLabel(sel.k),
+      hint: isLatest ? 'Solo la forma del grafico: nessun importo, nemmeno toccando.' : 'Rendimento sul versato fino ad allora · comparto ' + sel.c
+    };
+  }
   return {
     value: eur(sel.v), chip: eurS(g) + ' · ' + pct(g / sel.e), when: 'al ' + dateLabel(sel.k),
     hint: isLatest ? 'Tocca o scorri il grafico per vedere ogni mese.' : 'Versato fino ad allora: ' + eur(sel.e) + ' · comparto ' + sel.c
@@ -396,19 +468,21 @@ function heroTexts(sel, isLatest) {
 }
 
 function viewHome(M) {
+  const P_ = priv();
   const pm = pendingMonth(M);
-  let html = `<div class="head"><div class="eyebrow">${esc(data.fondo.nome)}${M.last ? ' · ' + esc(M.last.c) : ''}</div>
-    <div class="title-row"><h1>Panoramica</h1>
-      <button type="button" class="addbtn" data-act="ins-open" aria-label="Inserisci i dati del mese"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Inserisci</span></button>
-    </div></div>`;
+  let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">${esc(data.fondo.nome)}${M.last ? ' · ' + esc(M.last.c) : ''}</div>${privPill()}</div>
+    <div class="title-row"><h1>Panoramica</h1><div class="head-actions">
+      ${P_ ? '' : `<button type="button" class="addbtn" data-act="ins-open" aria-label="Inserisci i dati del mese"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Inserisci</span></button>`}
+      ${privBtn()}
+    </div></div></div>`;
 
   // Hero
   const G = chartGeom(M);
   if (M.last && G) {
     const sel = G.pts.find((p) => p.i === ui.selIdx) || G.pts[G.pts.length - 1];
-    const t = heroTexts(sel, sel === G.pts[G.pts.length - 1]);
-    html += `<section class="hero" aria-label="Valore della posizione">
-      <div class="top"><span class="lbl">Valore della posizione</span>
+    const t = heroTexts(sel, sel === G.pts[G.pts.length - 1], M);
+    html += `<section class="hero" aria-label="${P_ ? 'Rendimento della posizione' : 'Valore della posizione'}">
+      <div class="top"><span class="lbl">${P_ ? 'Rendimento della posizione' : 'Valore della posizione'}</span>
         <div class="seg-dark" role="group" aria-label="Periodo">
           <button type="button" data-act="range" data-v="all" aria-pressed="${ui.range === 'all'}">Tutto</button>
           <button type="button" data-act="range" data-v="1y" aria-pressed="${ui.range === '1y'}">12 mesi</button>
@@ -429,7 +503,7 @@ function viewHome(M) {
       </div>
       <div class="xlabels">${G.labels.map((l) => `<span style="${l.pos}">${l.text}</span>`).join('')}</div>
       <div class="legend">
-        <span><span class="sw" style="height:3px;border-radius:2px;background:#5BE0A8"></span>Valore</span>
+        <span><span class="sw" style="height:3px;border-radius:2px;background:#5BE0A8"></span>${P_ ? 'Andamento' : 'Valore'}</span>
         <span><span class="sw" style="border-top:2px dashed rgba(255,255,255,.6)"></span>Versato accreditato</span>
         ${G.hasGap ? '<span><span class="sw" style="border-top:2px dotted #5BE0A8"></span>Mese non registrato</span>' : ''}
       </div>
@@ -439,8 +513,8 @@ function viewHome(M) {
     html += `<section class="card"><div class="title">Ancora pochi dati</div><div class="sub">Il grafico compare dopo almeno due valori del fondo. Inserisci quote e valore quota dal sito del fondo.</div></section>`;
   }
 
-  // Promemoria
-  if (pm && !pm.done) {
+  // Promemoria (non in modalità privata: porta all'inserimento dei dati)
+  if (pm && !pm.done && !P_) {
     const tag = (need) => need ? '<span class="pill warn">Da fare</span>' : '<span class="pill ok">Fatto</span>';
     html += `<section class="card" aria-label="Promemoria">
       <div style="display:flex;gap:10px;align-items:center">
@@ -456,10 +530,36 @@ function viewHome(M) {
         ${extLink(LINK_AREA, 'Area riservata', 'btn soft')}
       </div>
     </section>`;
-  } else if (pm) {
+  } else if (pm && !P_) {
     html += `<section class="card" style="display:flex;gap:12px;align-items:center">
       <span class="icon-badge" style="background:var(--ok-soft);color:var(--ok)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
       <div><div class="title">${monthLabel(pm.k)} completato</div><div class="sub">Prossimo promemoria ${dayLabel(pm.prossima)}, con la busta paga di ${prevMonthLabel(pm.prossimoMese, todayKey())}</div></div>
+    </section>`;
+  }
+
+  const C = comparison(M);
+
+  // Ogni 1 € di tasca tua: è un rapporto, si legge uguale nelle due modalità.
+  const X = moltiplicatore(M, C);
+  if (X) {
+    const f = (v) => num(v, 2) + ' €';
+    const tot = 1 + Math.max(0, X.irpef) + Math.max(0, X.azienda) + Math.max(0, X.rendimento);
+    const w = (v) => (Math.max(0, v) / tot * 100).toFixed(1) + '%';
+    const al = pctPlain(aliquotaIrpef(parseKey(M.last.k).y), 0);
+    const note = P_
+      ? 'Il contributo dell\'azienda e la deduzione fiscale moltiplicano quello che metti tu. Il TFR non è contato: sarebbe tuo comunque.'
+      : `Contributo volontario ${eur(X.vol)}, di cui ${eur(X.risp)} tornati come IRPEF risparmiata: di tasca tua ${eur(X.tasca)}. Oggi, con il contributo dell'azienda e il rendimento, valgono ${eur(X.oggi)} nel fondo. Il TFR non è contato: sarebbe tuo comunque.`;
+    html += `<section class="card" aria-label="Ogni euro di tasca tua">
+      <div class="title">Ogni 1 € di tasca tua</div>
+      <div class="num ok-t" style="font-size:34px;font-weight:700;letter-spacing:-.02em;margin-top:6px">è diventato ${f(X.x)}</div>
+      <div class="stack" aria-hidden="true"><div style="width:${w(1)};background:var(--vol)"></div><div style="width:${w(X.irpef)};background:var(--accent)"></div><div style="width:${w(X.azienda)};background:var(--az)"></div><div style="width:${w(X.rendimento)};background:var(--mint)"></div></div>
+      <div class="grid2 molt">
+        <div><span class="dot" style="background:var(--vol)"></span>1,00 € tuo</div>
+        <div><span class="dot" style="background:var(--accent)"></span>+${f(X.irpef)} meno IRPEF</div>
+        <div><span class="dot" style="background:var(--az)"></span>+${f(X.azienda)} dall'azienda</div>
+        <div><span class="dot" style="background:var(--mint)"></span>${X.rendimento >= 0 ? '+' : ''}${f(X.rendimento)} di rendimento</div>
+      </div>
+      <div class="sub" style="margin-top:12px;color:var(--text-2)">${esc(note)} Deduzione stimata con l'aliquota IRPEF del ${al} (Impostazioni).</div>
     </section>`;
   }
 
@@ -467,17 +567,21 @@ function viewHome(M) {
   html += cardDeducibile(M);
 
   // Confronto
-  const C = comparison(M);
   if (C) {
     const max = Math.max(C.own, C.fpa, C.pip, C.tfr);
-    const row = (label, sub, val, color, own) => `<div>
-      <div class="cmp-top"><span>${label}</span><span class="num">${eur(val)}</span></div>
-      <div class="cmp-track"><div style="width:${(val / max * 100).toFixed(1)}%;background:${color}"></div></div>
-      <div class="cmp-bot"><span>${sub}</span>${own ? '' : `<b class="${val - C.own < 0 ? 'bad-t' : 'ok-t'}">${eurS(val - C.own)}</b>`}</div></div>`;
+    // In privata: il tuo fondo vale 100, le alternative in proporzione.
+    const val = (v) => P_ ? num(v / C.own * 100, 1) : eur(v);
+    const dif = (v) => P_ ? pct(v / C.own - 1) : eurS(v - C.own);
+    const row = (label, sub, v, color, own) => `<div>
+      <div class="cmp-top"><span>${label}</span><span class="num">${val(v)}</span></div>
+      <div class="cmp-track"><div style="width:${(v / max * 100).toFixed(1)}%;background:${color}"></div></div>
+      <div class="cmp-bot"><span>${sub}</span>${own ? '' : `<b class="${v - C.own < 0 ? 'bad-t' : 'ok-t'}">${dif(v)}</b>`}</div></div>`;
     const userTag = refUser ? ' · <b>valori inseriti da te</b>' : '';
+    const vsTfr = C.own - C.tfr;
     html += `<section class="card" aria-label="Confronto con le alternative">
       <div class="title">E se non avessi aderito?</div>
-      <div class="sub">Stessi versamenti, situazione al ${C.date}. Stima su medie pubbliche${userTag}.</div>
+      <div class="sub">${P_ ? 'Il tuo fondo vale 100. Stessi versamenti, stima su medie pubbliche' : 'Stessi versamenti, situazione al ' + C.date + '. Stima su medie pubbliche'}${userTag}.</div>
+      <div class="cmp-hi ${vsTfr < 0 ? 'neg' : ''}"><span class="num">${P_ ? pct(C.own / C.tfr - 1) : eurS(vsTfr, 0)}</span><span>rispetto al TFR lasciato in azienda</span></div>
       <div class="cmp-rows">
         ${row(esc(data.fondo.nome), 'Il tuo fondo, dato reale', C.own, 'var(--accent)', true)}
         ${row('Fondo aperto (banche, SGR)', 'Costi medi ' + pctPlain(C.R.isc.fondiAperti) + ' l\'anno, niente contributo azienda', C.fpa, 'var(--alt)')}
@@ -486,8 +590,8 @@ function viewHome(M) {
       </div>
       <button type="button" class="linkbtn" data-act="cmp-toggle" aria-expanded="${ui.cmpOpen}">${ui.cmpOpen ? 'Nascondi come è calcolato' : 'Come è calcolato'}</button>
       ${ui.cmpOpen ? `<div class="details">
-        <div><b>Il tuo fondo</b>: valore reale al ${C.date}, più i versamenti già trattenuti in busta paga e non ancora accreditati (${eur(C.pend)}). Così tutte le righe partono dagli stessi soldi.</div>
-        <div><b>Fondo aperto e PIP</b>: stessi investimenti del tuo comparto, meno la differenza di costo (${esc(C.R.isc.fonte)}). Il contributo azienda spetta di norma solo al fondo di categoria; anche ricevendolo avresti comunque ${eur(C.own - C.fpaKeep)} (fondo aperto) e ${eur(C.own - C.pipKeep)} (PIP) in meno, solo per i costi.</div>
+        <div><b>Il tuo fondo</b>: valore reale al ${C.date}, più i versamenti già trattenuti in busta paga e non ancora accreditati${P_ ? '' : ' (' + eur(C.pend) + ')'}. Così tutte le righe partono dagli stessi soldi.</div>
+        <div><b>Fondo aperto e PIP</b>: stessi investimenti del tuo comparto, meno la differenza di costo (${esc(C.R.isc.fonte)}). Il contributo azienda spetta di norma solo al fondo di categoria; anche ricevendolo avresti comunque ${P_ ? pct(C.fpaKeep / C.own - 1).slice(1) : eur(C.own - C.fpaKeep)} (fondo aperto) e ${P_ ? pct(C.pipKeep / C.own - 1).slice(1) : eur(C.own - C.pipKeep)} (PIP) in meno, solo per i costi.</div>
         <div><b>TFR in azienda</b>: rivalutazione di legge (1,5% + 75% dell'inflazione ISTAT), tassata al 17%. Il contributo volontario resta in busta paga, senza rendimento e senza deduzione fiscale.</div>
         <div style="color:var(--muted)">Non include la tassazione finale, più bassa nel fondo pensione (dal 15% al 9%). È una stima, non un consiglio d'investimento. Dati pubblici aggiornati al ${esc(C.R.aggiornato || C.R.versione)}.</div>
       </div>` : ''}
@@ -506,32 +610,34 @@ function viewHome(M) {
     }
     let note = waitNames.length ? 'Il ' + waitNames.join(', ') + ' risulta versato in busta paga ma non ancora sul sito: lo controllo da solo al prossimo inserimento.' : 'Ogni trimestre versato risulta accreditato dal fondo, al centesimo.';
     if (diffNames.length) note = 'Da verificare: ' + diffNames.join(', ') + ' non torna con le buste paga. Trovi il dettaglio in Anni.';
-    if (runSum > 0) note += ' Il trimestre in corso vale finora ' + eur(runSum) + '.';
+    if (runSum > 0 && !P_) note += ' Il trimestre in corso vale finora ' + eur(runSum) + '.';
+    const v3 = (x) => P_ ? pctPlain(x / M.tv, 1) : eur(x);
     html += `<section class="card" aria-label="Versato e accreditato">
       <div class="title">Versato e accreditato</div><div class="sub">Busta paga confrontata con il fondo, trimestre per trimestre</div>
       <div class="bar"><div style="width:${(okSum / M.tv * 100).toFixed(1)}%;background:var(--accent)"></div><div style="width:${((waitSum + runSum) / M.tv * 100).toFixed(1)}%;background:var(--az)"></div></div>
       <div class="grid3">
-        <div><div class="kv-l">Versato</div><div class="kv-v">${eur(M.tv)}</div></div>
-        <div><div class="kv-l">Accreditato</div><div class="kv-v ok-t">${eur(okSum)}</div></div>
-        <div><div class="kv-l">In attesa</div><div class="kv-v warn-t">${eur(waitSum + runSum)}</div></div>
+        <div><div class="kv-l">Versato</div><div class="kv-v">${v3(M.tv)}</div></div>
+        <div><div class="kv-l">Accreditato</div><div class="kv-v ok-t">${v3(okSum)}</div></div>
+        <div><div class="kv-l">In attesa</div><div class="kv-v warn-t">${v3(waitSum + runSum)}</div></div>
       </div>
       <div class="sub" style="margin-top:12px;color:var(--text-2)">${note}</div>
     </section>`;
 
     // Composizione
     const w = (x) => Math.round(x / M.tv * 100) + '%';
+    const v = (x) => P_ ? Math.round(x / M.tv * 100) + ' €' : `${eur(x)} <span style="color:var(--muted)">· ${w(x)}</span>`;
     html += `<section class="card" aria-label="Da dove arrivano i versamenti">
-      <div class="title">Da dove arrivano i soldi</div><div class="sub">Totale versato dall'adesione: ${eur(M.tv)}</div>
+      <div class="title">Da dove arrivano i soldi</div><div class="sub">${P_ ? 'Su ogni 100 € versati dall\'adesione' : 'Totale versato dall\'adesione: ' + eur(M.tv)}</div>
       <div class="stack"><div style="width:${w(M.ttfr)};background:var(--tfr)"></div><div style="width:${w(M.taz)};background:var(--az)"></div><div style="width:${w(M.tvol)};background:var(--vol)"></div></div>
       <div class="legend-list">
-        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--tfr)"></span>TFR</span><span class="num">${eur(M.ttfr)} <span style="color:var(--muted)">· ${w(M.ttfr)}</span></span></div>
-        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--az)"></span>Contributo azienda</span><span class="num">${eur(M.taz)} <span style="color:var(--muted)">· ${w(M.taz)}</span></span></div>
-        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--vol)"></span>Contributo volontario</span><span class="num">${eur(M.tvol)} <span style="color:var(--muted)">· ${w(M.tvol)}</span></span></div>
+        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--tfr)"></span>TFR</span><span class="num">${v(M.ttfr)}</span></div>
+        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--az)"></span>Contributo azienda</span><span class="num">${v(M.taz)}</span></div>
+        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--vol)"></span>Contributo volontario</span><span class="num">${v(M.tvol)}</span></div>
       </div>
     </section>`;
   }
 
-  // Comparto
+  // Comparto (valore quota e costi sono dati pubblici del fondo: restano visibili)
   if (M.last) {
     const cur = M.last.c; const since = data.comparti.filter((c) => c.nome === cur).map((c) => c.dal).pop();
     const firstOfCur = M.P.find((p) => p.c === cur && (!since || p.k >= since));
@@ -556,33 +662,36 @@ function cardDeducibile(M) {
   let D = deducibile(M, oggi.y);
   if (D && !D.mesi) { const P = deducibile(M, oggi.y - 1); if (P && P.mesi) D = P; } // a inizio anno mostra ancora l'anno chiuso
   if (!D || !D.mesi) return '';
+  const P_ = priv();
   const chiuso = D.y < oggi.y || D.ultimo === 12;
   const scala = Math.max(D.lim, D.usato);
   const w = (x) => (x / scala * 100).toFixed(1) + '%';
+  const ql = (x) => pq(x / D.lim); // quota del limite, per la modalità privata
   let big, pill;
-  if (D.oltre > 0.005) { big = `<span class="warn-t">Oltre di ${eur(D.oltre)}</span>`; pill = '<span class="pill warn">Limite superato</span>'; }
+  if (D.oltre > 0.005) { big = `<span class="warn-t">Oltre ${P_ ? 'del ' + ql(D.oltre) : 'di ' + eur(D.oltre)}</span>`; pill = '<span class="pill warn">Limite superato</span>'; }
   else if (D.resto < 0.005) { big = '<span class="ok-t">Limite raggiunto</span>'; pill = '<span class="pill ok">Al massimo</span>'; }
-  else { big = (chiuso ? 'Non usati ' : 'Restano ') + eur(D.resto); pill = D.stimati ? '<span class="pill idle">In parte stimato</span>' : ''; }
+  else { big = P_ ? (chiuso ? 'Non usato il ' : 'Resta il ') + ql(D.resto) : (chiuso ? 'Non usati ' : 'Restano ') + eur(D.resto); pill = D.stimati ? '<span class="pill idle">In parte stimato</span>' : ''; }
   const note = [];
   if (!chiuso && D.proiezione != null && D.oltre <= 0) {
     const fine = D.lim - D.proiezione;
-    note.push('A questo ritmo a fine anno arrivi a ' + eur(D.proiezione, 0) + (fine >= 0 ? ': resterebbero ' + eur(fine, 0) + ' di spazio.' : ', oltre il limite di ' + eur(-fine, 0) + '.'));
+    if (P_) note.push('A questo ritmo a fine anno arrivi al ' + ql(D.proiezione) + ' del limite.');
+    else note.push('A questo ritmo a fine anno arrivi a ' + eur(D.proiezione, 0) + (fine >= 0 ? ': resterebbero ' + eur(fine, 0) + ' di spazio.' : ', oltre il limite di ' + eur(-fine, 0) + '.'));
   }
   if (D.stimati) note.push(D.stimati + (D.stimati === 1 ? ' mese ha' : ' mesi hanno') + ' i contributi stimati dalle aliquote: ricarica la busta paga per i valori esatti.');
   note.push('Non conta eventuali versamenti fatti fuori busta paga.');
   let banner = '';
   const fineAnno = D.y === oggi.y && (oggi.m === 12 || (oggi.m === 11 && new Date().getDate() >= 15));
   if (D.oltre > 0.005) banner = `<div class="banner warn" style="margin-top:14px;border-radius:12px">La parte oltre il limite non è deducibile. Comunicala al fondo entro il 31 dicembre ${D.y + 1}: così alla fine non verrà tassata di nuovo.</div>`;
-  else if (fineAnno && D.resto >= 1) banner = `<div class="banner info" style="margin-top:14px;border-radius:12px">Entro il 31 dicembre puoi versare ancora fino a <b>${eur(D.resto)}</b> con un versamento volontario e dedurli nella prossima dichiarazione. ${extLink(LINK_AREA, 'Area riservata', '', 'font-weight:600;color:inherit')}</div>`;
+  else if (fineAnno && D.resto >= 1) banner = `<div class="banner info" style="margin-top:14px;border-radius:12px">Entro il 31 dicembre puoi versare ancora fino ${P_ ? 'al <b>' + ql(D.resto) + ' del limite</b>' : 'a <b>' + eur(D.resto) + '</b>'} con un versamento volontario e dedurli nella prossima dichiarazione.${P_ ? '' : ' ' + extLink(LINK_AREA, 'Area riservata', '', 'font-weight:600;color:inherit')}</div>`;
   return `<section class="card" aria-label="Spazio deducibile ${D.y}">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="title">Spazio deducibile ${D.y}</div>${pill}</div>
     <div class="sub">Contributo tuo e dell'azienda · il TFR non conta</div>
     <div class="num" style="font-size:26px;font-weight:700;letter-spacing:-.02em;margin-top:10px">${big}</div>
-    <div class="bar" role="img" aria-label="Usati ${eur(D.usato)} su ${eur(D.lim)}"><div style="width:${w(D.az)};background:var(--az)"></div><div style="width:${w(D.vol)};background:var(--vol)"></div></div>
+    <div class="bar" role="img" aria-label="${P_ ? 'Usato il ' + ql(D.usato) + ' del limite' : 'Usati ' + eur(D.usato) + ' su ' + eur(D.lim)}"><div style="width:${w(D.az)};background:var(--az)"></div><div style="width:${w(D.vol)};background:var(--vol)"></div></div>
     <div class="grid3">
-      <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Tuo</div><div class="kv-v">${eur(D.vol)}</div></div>
-      <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${eur(D.az)}</div></div>
-      <div><div class="kv-l">Limite</div><div class="kv-v">${eur(D.lim)}</div></div>
+      <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Tuo</div><div class="kv-v">${P_ ? ql(D.vol) : eur(D.vol)}</div></div>
+      <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${P_ ? ql(D.az) : eur(D.az)}</div></div>
+      <div><div class="kv-l">${P_ ? 'Spazio libero' : 'Limite'}</div><div class="kv-v">${P_ ? ql(Math.max(0, D.resto)) : eur(D.lim)}</div></div>
     </div>
     ${banner}
     <div class="sub" style="margin-top:12px;color:var(--text-2)">${note.map(esc).join(' ')}</div>
@@ -599,7 +708,7 @@ function bindChart(M) {
     let best = G.pts[0], bd = Infinity;
     for (const p of G.pts) { const d = Math.abs(G.X(p.i) - x); if (d < bd) { bd = d; best = p; } }
     ui.selIdx = best.i;
-    const t = heroTexts(best, best === G.pts[G.pts.length - 1]);
+    const t = heroTexts(best, best === G.pts[G.pts.length - 1], M);
     $('#h-value').textContent = t.value; $('#h-chip').textContent = t.chip; $('#h-when').textContent = t.when; $('#h-hint').textContent = t.hint;
     const sx = G.X(best.i).toFixed(1);
     for (const id of ['h-vline']) { $('#' + id).setAttribute('x1', sx); $('#' + id).setAttribute('x2', sx); }
@@ -614,11 +723,22 @@ function bindChart(M) {
 
 /* ---------- Anni ---------- */
 function viewAnni(M) {
+  const P_ = priv();
   const ys = yearsRange(M);
   if (!ui.year || ys.indexOf(ui.year) < 0) ui.year = ys[ys.length - 1];
   const Y = ui.year, tk = todayKey();
-  let html = `<div class="head"><div class="eyebrow">Resoconto</div><h1>Anno ${Y}</h1></div>
+  let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">Resoconto</div>${privPill()}</div><div class="title-row"><h1>Anno ${Y}</h1><div class="head-actions">${privBtn()}</div></div></div>
     <div class="seg" role="group" aria-label="Scegli l'anno">${ys.map((y) => `<button type="button" data-act="year" data-v="${y}" aria-pressed="${y === Y}">${y}</button>`).join('')}</div>`;
+
+  // In privata: le righe dei mesi mostrano la ripartizione in % e il valore quota (pubblico), mai quote o importi.
+  const parts = (d) => P_ ? `Ripartizione: Vol. ${pq(d.vol / d.tot)} · Az. ${pq(d.az / d.tot)} · TFR ${pq(d.tfr / d.tot)}` : `Vol. ${eur(d.vol)} · Az. ${eur(d.az)} · TFR ${eur(d.tfr)}`;
+  const snapLine = (snap) => {
+    if (!P_) return `${num(snap.q, 3)} quote × ${num(snap.vq, 3)} € = ${eur(snap.v)}`;
+    const before = M.P.filter((p) => p.i < snap.i).pop();
+    const ch = before && before.c === snap.c ? ' · ' + pct(snap.vq / before.vq - 1) + ' dal valore precedente' : '';
+    return `Valore quota ${num(snap.vq, 3)} €${ch}`;
+  };
+  const tag = (k, label) => P_ ? `<span class="pill warn">${label}</span>` : `<button type="button" class="chipbtn warn" data-act="ins-month" data-v="${k}">${label}</button>`;
 
   let yt = 0, yv = 0, ya = 0, yf = 0, count = 0; const bars = [], rows = [];
   const scale = 120 / Math.max(300, ...Object.values(M.months).map((d) => d.tot));
@@ -631,48 +751,59 @@ function viewAnni(M) {
       const edited = data.modifiche && data.modifiche[k];
       rows.push(`<div class="row">
         <div class="row-top"><span class="row-name">${cap(MESI[m - 1])}</span><span class="row-name num">${eur(d.tot)}</span></div>
-        <div class="row-meta">${d.base == null ? 'Imponibile non registrato' + (d.az ? ' · azienda inserita a mano' : '') : 'Imponibile ' + eur(d.base)}</div>
-        <div class="row-meta" style="margin-top:1px">Vol. ${eur(d.vol)} · Az. ${eur(d.az)} · TFR ${eur(d.tfr)}</div>
+        ${P_ ? '' : `<div class="row-meta">${d.base == null ? 'Imponibile non registrato' + (d.az ? ' · azienda inserita a mano' : '') : 'Imponibile ' + eur(d.base)}</div>`}
+        <div class="row-meta" style="margin-top:1px">${parts(d)}</div>
         ${d.stimato && d.base != null ? '<div class="row-meta" style="color:var(--muted)">Contributi stimati dalle aliquote</div>' : ''}
-        ${snap ? `<div class="row-meta ok-t">${num(snap.q, 3)} quote × ${num(snap.vq, 3)} € = ${eur(snap.v)}</div>` : (M.P.length && k > M.P[0].k ? '<div class="row-meta warn-t">Valore quota non registrato</div>' : '')}
-        <div class="row-actions"><span style="font-size:12px;font-weight:600;color:var(--info)">${edited ? 'Modificato da te' : ''}</span><button type="button" class="chipbtn" data-act="ins-month" data-v="${k}" aria-label="Modifica ${MESI[m - 1]} ${Y}">Modifica</button></div>
+        ${snap ? `<div class="row-meta ok-t">${snapLine(snap)}</div>` : (M.P.length && k > M.P[0].k ? '<div class="row-meta warn-t">Valore quota non registrato</div>' : '')}
+        ${P_ ? '' : `<div class="row-actions"><span style="font-size:12px;font-weight:600;color:var(--info)">${edited ? 'Modificato da te' : ''}</span><button type="button" class="chipbtn" data-act="ins-month" data-v="${k}" aria-label="Modifica ${MESI[m - 1]} ${Y}">Modifica</button></div>`}
       </div>`);
     } else if (snap) {
-      rows.push(`<div class="row"><div class="row-top"><span class="row-name">${cap(MESI[m - 1])}</span><button type="button" class="chipbtn warn" data-act="ins-month" data-v="${k}">Busta paga mancante</button></div>
-        <div class="row-meta ok-t">${num(snap.q, 3)} quote × ${num(snap.vq, 3)} € = ${eur(snap.v)}</div></div>`);
+      rows.push(`<div class="row"><div class="row-top"><span class="row-name">${cap(MESI[m - 1])}</span>${tag(k, 'Busta paga mancante')}</div>
+        <div class="row-meta ok-t">${snapLine(snap)}</div></div>`);
     } else if (!beforeStart && !future) {
-      rows.push(`<div class="row"><div class="row-top"><span class="row-name">${cap(MESI[m - 1])}</span><button type="button" class="chipbtn warn" data-act="ins-month" data-v="${k}">Da inserire</button></div></div>`);
+      rows.push(`<div class="row"><div class="row-top"><span class="row-name">${cap(MESI[m - 1])}</span>${tag(k, 'Da inserire')}</div></div>`);
     } else {
       rows.push(`<div class="row"><div class="row-top"><span class="row-name" style="color:var(--faint)">${cap(MESI[m - 1])}</span><span class="sub">${future ? 'In arrivo' : 'Prima dell\'adesione'}</span></div></div>`);
     }
   }
 
+  // In privata il totale dell'anno diventa la media mensile confrontata con l'anno prima
+  // (media e non totale: un anno in corso ha meno mesi).
+  let bigY = eur(yt);
+  if (P_) {
+    let pt = 0, pc = 0;
+    for (let m = 1; m <= 12; m++) { const d = M.months[key(Y - 1, m)]; if (d) { pt += d.tot; pc++; } }
+    bigY = count && pc ? `${pct((yt / count) / (pt / pc) - 1)} <span class="big-sub">al mese rispetto al ${Y - 1}</span>` : `${count ? 'Primo anno' : '—'}`;
+  }
+  const yp = (x) => P_ ? pq(x / yt) : eur(x);
   html += `<section class="card" aria-label="Versato nell'anno">
     <div class="sub">Versato nell'anno · ${count} ${count === 1 ? 'mese registrato' : 'mesi registrati'}</div>
-    <div class="num" style="font-size:32px;font-weight:700;letter-spacing:-.02em">${eur(yt)}</div>
+    <div class="num" style="font-size:32px;font-weight:700;letter-spacing:-.02em">${bigY}</div>
     <div class="bars">${bars.join('')}</div>
     <div class="bars-lab">${INIZ.map((l) => `<span>${l}</span>`).join('')}</div>
     <div class="grid3">
-      <div><div class="kv-l"><span class="dot" style="background:var(--tfr)"></span>TFR</div><div class="kv-v">${eur(yf)}</div></div>
-      <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${eur(ya)}</div></div>
-      <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Volontario</div><div class="kv-v">${eur(yv)}</div></div>
+      <div><div class="kv-l"><span class="dot" style="background:var(--tfr)"></span>TFR</div><div class="kv-v">${yp(yf)}</div></div>
+      <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${yp(ya)}</div></div>
+      <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Volontario</div><div class="kv-v">${yp(yv)}</div></div>
     </div></section>`;
 
   const D = deducibile(M, Y);
   if (D && D.mesi) {
     const passato = Y < parseKey(todayKey()).y;
-    const [lab3, val3] = D.oltre > 0.005 ? ['Oltre il limite', `<span class="warn-t">${eur(D.oltre)}</span>`] : D.resto < 0.005 ? ['Spazio', '<span class="ok-t">Pieno</span>'] : [passato ? 'Non usati' : 'Restano', eur(D.resto)];
+    const ql = (x) => pq(x / D.lim);
+    const v = (x) => P_ ? ql(x) : eur(x);
+    const [lab3, val3] = D.oltre > 0.005 ? ['Oltre il limite', `<span class="warn-t">${v(D.oltre)}</span>`] : D.resto < 0.005 ? ['Spazio', '<span class="ok-t">Pieno</span>'] : [passato ? (P_ ? 'Non usato' : 'Non usati') : (P_ ? 'Spazio libero' : 'Restano'), v(D.resto)];
     const sc = Math.max(D.lim, D.usato);
     html += `<h2 class="sec">Deducibilità</h2><section class="card" aria-label="Deducibilità ${Y}">
-      <div class="sub">Contributi deducibili su ${eur(D.lim)}</div>
-      <div class="num" style="font-size:26px;font-weight:700;letter-spacing:-.02em;margin-top:2px">${eur(D.usato)}</div>
+      <div class="sub">${P_ ? 'Contributi deducibili, in percentuale del limite' : 'Contributi deducibili su ' + eur(D.lim)}</div>
+      <div class="num" style="font-size:26px;font-weight:700;letter-spacing:-.02em;margin-top:2px">${P_ ? 'Usato il ' + ql(D.usato) : eur(D.usato)}</div>
       <div class="bar"><div style="width:${(D.az / sc * 100).toFixed(1)}%;background:var(--az)"></div><div style="width:${(D.vol / sc * 100).toFixed(1)}%;background:var(--vol)"></div></div>
       <div class="grid3">
-        <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Tuo</div><div class="kv-v">${eur(D.vol)}</div></div>
-        <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${eur(D.az)}</div></div>
+        <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Tuo</div><div class="kv-v">${v(D.vol)}</div></div>
+        <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${v(D.az)}</div></div>
         <div><div class="kv-l">${lab3}</div><div class="kv-v">${val3}</div></div>
       </div>
-      <div class="sub" style="margin-top:12px;color:var(--text-2)">${D.stimati ? D.stimati + (D.stimati === 1 ? ' mese con contributi stimati' : ' mesi con contributi stimati') + ' dalle aliquote, segnati qui sotto. ' : 'Contributi letti dalle buste paga. '}Il TFR versato al fondo (${eur(yf)}) non rientra nel limite. Per conferma, confronta il totale con la Certificazione Unica.</div>
+      <div class="sub" style="margin-top:12px;color:var(--text-2)">${D.stimati ? D.stimati + (D.stimati === 1 ? ' mese con contributi stimati' : ' mesi con contributi stimati') + ' dalle aliquote, segnati qui sotto. ' : 'Contributi letti dalle buste paga. '}Il TFR versato al fondo${P_ ? '' : ' (' + eur(yf) + ')'} non rientra nel limite. Per conferma, confronta il totale con la Certificazione Unica.</div>
     </section>`;
   }
 
@@ -682,12 +813,16 @@ function viewAnni(M) {
     const prev = M.P.filter((p) => parseKey(p.k).y < Y).pop();
     const endR = endS.v - endS.e, prevR = prev ? prev.v - prev.e : 0;
     const comps = [...new Set(ysnap.map((p) => p.c))];
+    // Variazione del valore quota nell'anno, solo dentro lo stesso comparto
+    const vq0 = prev && prev.c === endS.c ? prev.vq : (ysnap.find((p) => p.c === endS.c) || endS).vq;
     html += `<section class="hero" style="margin-top:16px;border-radius:22px;padding:18px" aria-label="Situazione a fine periodo">
-      <div class="lbl" style="font-size:13px">Valore al ${dateLabel(endS.k)}</div>
-      <div class="num" style="font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:2px">${eur(endS.v)}</div>
+      <div class="lbl" style="font-size:13px">${P_ ? 'Al ' : 'Valore al '}${dateLabel(endS.k)}</div>
+      <div class="num" style="font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:2px">${P_ ? pct(endR / endS.e) + ' <span style="font-size:15px;font-weight:600;color:var(--hero-2)">sul versato</span>' : eur(endS.v)}</div>
       <div class="grid2">
-        <div><div class="kv-l" style="color:var(--hero-2)">Rendimento totale</div><div class="kv-v" style="color:var(--mint)">${eurS(endR)} · ${pct(endR / endS.e)}</div></div>
-        <div><div class="kv-l" style="color:var(--hero-2)">${prev ? 'Maturato nell\'anno' : 'Maturato dall\'adesione'}</div><div class="kv-v" style="color:var(--mint)">${eurS(endR - prevR)}</div></div>
+        <div><div class="kv-l" style="color:var(--hero-2)">Rendimento totale</div><div class="kv-v" style="color:var(--mint)">${P_ ? pct(endR / endS.e) : eurS(endR) + ' · ' + pct(endR / endS.e)}</div></div>
+        ${P_
+          ? `<div><div class="kv-l" style="color:var(--hero-2)">Valore quota nell'anno</div><div class="kv-v" style="color:var(--mint)">${endS.vq !== vq0 ? pct(endS.vq / vq0 - 1) : '—'}</div></div>`
+          : `<div><div class="kv-l" style="color:var(--hero-2)">${prev ? 'Maturato nell\'anno' : 'Maturato dall\'adesione'}</div><div class="kv-v" style="color:var(--mint)">${eurS(endR - prevR)}</div></div>`}
       </div>
       <div class="when" style="margin-top:10px">${comps.length > 1 ? 'Comparti nell\'anno: ' + comps.map(esc).join(' → ') : 'Comparto ' + esc(comps[0])}</div>
     </section>`;
@@ -697,7 +832,9 @@ function viewAnni(M) {
   const pill = { ok: ['ok', 'Accreditato'], diff: ['bad', 'Da verificare'], attesa: ['warn', 'In attesa'], corso: ['idle', 'In corso'], futuro: ['idle', 'Da versare'], vuoto: ['idle', 'Nessun dato'] };
   html += `<h2 class="sec">Trimestri</h2><section class="card flush" aria-label="Trimestri">` + [1, 2, 3, 4].map((q) => {
     const r = quarterInfo(M, Y, q), p = pill[r.st];
-    const note = r.note || (r.st === 'corso' ? 'Mesi ancora da inserire' : r.st === 'futuro' ? 'Non ancora iniziato' : 'Nessuna busta paga registrata');
+    let note = r.note || (r.st === 'corso' ? 'Mesi ancora da inserire' : r.st === 'futuro' ? 'Non ancora iniziato' : 'Nessuna busta paga registrata');
+    if (P_ && r.st === 'ok') note = 'Torna al centesimo con le buste paga';
+    if (P_ && r.st === 'diff') note = 'Non torna con le buste paga';
     return `<div class="row"><div class="row-top" style="align-items:center"><span class="row-name">${q}° trimestre <span style="font-weight:400;color:var(--muted);font-size:14px">${periods[q - 1]}</span></span><span class="pill ${p[0]}">${p[1]}</span></div>
       <div class="row-top" style="margin-top:4px;font-size:14px;color:var(--text-2)"><span>${note}</span><span class="num" style="font-weight:600;color:var(--text)">${r.amt > 0 ? eur(r.amt) : '—'}</span></div></div>`;
   }).join('') + '</section>';
@@ -940,6 +1077,15 @@ function viewImpostazioni(M) {
       <button type="button" class="listlink" data-act="sheet" data-v="aliquota">+ Aggiungi un cambio di aliquota</button></section>
     <div class="note">Ogni aliquota vale da quel mese in poi: i mesi passati restano calcolati con quella dell'epoca.</div>
 
+    <h3 class="group">Tasse</h3>
+    <section class="card flush" style="margin-top:0">
+      <div class="field"><label for="s-irpef">Scaglione IRPEF</label><select id="s-irpef" data-act="scaglione-irpef">${(() => {
+        const y = parseKey(todayKey()).y, lab = ['fino a 28.000 €', '28.000 – 50.000 €', 'oltre 50.000 €'];
+        return [1, 2, 3].map((n) => `<option value="${n}" ${data.impostazioni.scaglioneIrpef === n ? 'selected' : ''}>${pctPlain(R.irpef.aliquote[Object.keys(R.irpef.aliquote).filter((k) => Number(k) <= y).sort().pop()][n - 1], 0)} · ${lab[n - 1]}</option>`).join('');
+      })()}</select></div>
+    </section>
+    <div class="note">Il tuo scaglione più alto di reddito. Serve solo a stimare quanta IRPEF ti torna con la deduzione dei contributi (card "Ogni 1 € di tasca tua"). Fonte: ${esc(R.irpef.fonte)}.</div>
+
     <h3 class="group">Dati di confronto</h3>
     <section class="card flush" style="margin-top:0">
       ${newer ? `<div class="banner info">Sono disponibili dati ufficiali più recenti (${esc(ref.aggiornato || ref.versione)}). <button type="button" class="chipbtn" style="margin-top:8px" data-act="ref-reset">Usa i dati ufficiali</button></div>` : ''}
@@ -1115,6 +1261,7 @@ async function exportCSV() {
 }
 
 /* ======================= Eventi ======================= */
+const PRIV_BLOCKED = ['ins-open', 'ins-month', 'ins-save', 'sheet', 'sheet-save', 'export', 'export-csv', 'wipe', 'ref-reset', 'del-comparto', 'del-aliquota', 'start-empty'];
 let toastTimer = null;
 function toast(msg) {
   let t = $('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
@@ -1125,7 +1272,13 @@ document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el) return;
   const act = el.dataset.act, v = el.dataset.v;
   if (act === 'sheet-scrim' && ev.target !== el) return;
+  // In modalità privata niente inserimento, impostazioni, fogli o export (anche se un pulsante restasse a schermo).
+  if (priv() && (PRIV_BLOCKED.includes(act) || (act === 'tab' && !PRIV_TABS.includes(v)))) return;
   switch (act) {
+    case 'priv':
+      ui.priv = !ui.priv; ui.selIdx = null; savePref(); render();
+      toast(ui.priv ? 'Modalità privata: importi nascosti' : 'Importi visibili');
+      break;
     case 'tab': ui.tab = v; if (v === 'inserisci') { ui.insMonth = null; ui.form = null; } render(); window.scrollTo(0, 0); break;
     case 'ins-open': ui.tab = 'inserisci'; ui.insMonth = null; ui.form = null; render(); window.scrollTo(0, 0); break;
     case 'range': ui.range = v; ui.selIdx = null; render(); break;
@@ -1158,6 +1311,7 @@ document.addEventListener('change', (ev) => {
   if (t.dataset.act === 'import' && t.files && t.files[0]) { importFile(t.files[0]); t.value = ''; }
   if (t.dataset.act === 'busta-pdf' && t.files && t.files[0]) { const file = t.files[0]; t.value = ''; readBusta(file); }
   if (t.dataset.act === 'ins-select') { ui.insMonth = t.value; ui.form = null; render(); }
+  if (t.dataset.act === 'scaglione-irpef' && data) { data.impostazioni.scaglioneIrpef = Number(t.value); persist(); render(); }
   if (t.dataset.act === 'giorno-paga' && data) { data.impostazioni.giornoPaga = Number(t.value); persist(); ui.insMonth = null; ui.form = null; render(); }
   if (t.dataset.s && ui.sheet) { ui.sheet[t.dataset.s] = t.value; }
 });
@@ -1169,6 +1323,8 @@ window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTi
   const saved = loadJSON(STORE_KEY);
   data = saved ? normalize(saved) : null;
   refUser = loadJSON(REF_USER_KEY);
+  const pref = loadJSON(PREF_KEY);
+  ui.priv = !!(pref && pref.privata);
   const cached = loadJSON(REF_CACHE_KEY);
   if (cached && cached.versione > ref.versione) ref = cached;
   render();

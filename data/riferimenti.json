@@ -1,7 +1,7 @@
 {
   "formato": "quota-riferimenti",
-  "versione": "2026-11-10",
-  "aggiornato": "2026-11-10",
+  "versione": "2026-11-11",
+  "aggiornato": "2026-11-11",
   "deducibilita": {
     "fonte": "D.Lgs. 252/2005 art. 8 c. 4, come modificato dalla Legge 199/2025 (Bilancio 2026)",
     "limiti": {
@@ -35,6 +35,21 @@
       "2026-07": 3.136358,
       "2026-08": 3.710988,
       "2026-09": 4.285617
+    }
+  },
+  "irpef": {
+    "fonte": "TUIR art. 11, come modificato dalla Legge 199/2025 (Bilancio 2026)",
+    "aliquote": {
+      "2024": [
+        0.23,
+        0.35,
+        0.43
+      ],
+      "2026": [
+        0.23,
+        0.33,
+        0.43
+      ]
     }
   },
   "isc": {
