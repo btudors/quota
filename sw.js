@@ -1,6 +1,6 @@
 // Quota – service worker: l'app funziona anche offline.
 // Aumentare VERSION a ogni rilascio per aggiornare la cache sui telefoni.
-const VERSION = 'quota-v6';
+const VERSION = 'quota-v7';
 const SHELL = [
   './',
   'index.html',
