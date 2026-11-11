@@ -337,10 +337,11 @@ function guidaSezioni() {
 
     { id: 'panoramica', t: 'Panoramica', s: 'Il grafico e le schede', ill: ILL.benvenuto, b: `
       <h4>Il grafico</h4><p>Mostra il valore della posizione. <b>Tutto</b> confronta con quanto hai versato dall'adesione; <b>12 mesi</b> mostra il rendimento del comparto senza l'effetto dei versamenti. Tocca o trascina sul grafico per vedere un mese.</p>
-      <p>Sotto il grafico, <b>Da dove arrivano i soldi</b>: quanto del versato dall'adesione viene dal TFR, dall'azienda e da te.</p>
+      <p>Sotto il grafico, <b>Com'è fatto il valore</b>: quanto del valore di oggi viene dal TFR, dall'azienda, da te e dal rendimento. Le quattro cifre sommate danno il valore della posizione. Il versato è quello già arrivato al fondo: i contributi trattenuti in busta e non ancora accreditati li trovi in Anni.</p>
       <h4>Le schede</h4><ul class="gl">
         <li class="dotli"><span class="cdot acc"></span><span><b>Ogni 1 € di tasca tua</b>: quanto è diventato ogni euro uscito davvero da te, contando contributo dell'azienda, rendimento e IRPEF risparmiata. Il TFR resta fuori, perché sarebbe tuo comunque.</span></li>
         <li class="dotli"><span class="cdot acc"></span><span><b>E se non avessi aderito?</b>: il confronto con il TFR lasciato in azienda e con fondi aperti e PIP.</span></li>
+        <li class="dotli"><span class="cdot acc"></span><span><b>Comparto</b>: valore quota, costi, quanto è in azioni e in obbligazioni, il rischio rispetto agli altri comparti del fondo. Con <b>Investimenti e rendimenti</b> vedi in quali Paesi investe e il rendimento anno per anno, confrontato con il benchmark. Con <b>Confronta i comparti</b> vedi i tre comparti del fondo uno accanto all'altro, con vantaggi, rischi e regole per cambiare. Sono dati pubblici del fondo, aggiornati una volta l'anno.</span></li>
         <li class="dotli"><span class="cdot acc"></span><span><b>Spazio deducibile</b>: quanto puoi ancora versare nell'anno con il vantaggio fiscale. Da qui aggiungi anche un versamento fuori busta.</span></li></ul>` },
 
     { id: 'anni', t: 'Anni', s: 'Resoconto, trimestri, deducibilità', ill: ILL.anni, b: `

@@ -399,3 +399,36 @@ body.ovl { overflow: hidden; }
 .risk-t { font-weight: 700; color: var(--warn); margin-bottom: 6px; }
 .risk ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
 .risk-ok { margin-top: 10px; color: var(--muted); font-size: 13px; }
+
+.hc-grid.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.hc-grid.g4 .hc-v { font-size: 15px; }
+.hc-neg { margin-top: 10px; font-size: 13px; color: #FF8A80; }
+
+/* Scheda comparto: ripartizione, rischio, investimenti */
+.cp-sec { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--sep); }
+.cp-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 15px; font-weight: 600; }
+.cp-d { font-size: 12px; font-weight: 500; color: var(--muted); }
+.cp-bar { margin-top: 10px; height: 12px; }
+.cp-leg { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 13px; color: var(--text-2); }
+.cp-leg > span { display: inline-flex; align-items: center; gap: 6px; }
+.risk3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 10px; }
+.risk3 > div { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); text-align: center; }
+.risk3 > div span { height: 8px; border-radius: 4px; background: var(--track); }
+.risk3 > div.fill span { background: var(--accent-soft); }
+.risk3 > div.on span { background: var(--accent); }
+.risk3 > div.on { color: var(--text); font-weight: 700; }
+.geo { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.geo > div { display: grid; grid-template-columns: 9.5em 1fr 3.2em; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
+.geo b { text-align: right; color: var(--text); }
+.geo-t { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
+.geo-t div { height: 100%; border-radius: 4px; background: var(--accent); }
+.cp-kv { margin-top: 14px; row-gap: 12px; }
+.yrs { display: block; width: 100%; height: auto; margin-top: 10px; overflow: visible; }
+.yrs .yr-v { font-size: 10px; font-weight: 700; fill: var(--text-2); font-family: var(--font); }
+.yrs .yr-l { font-size: 10px; fill: var(--muted); font-family: var(--font); }
+.linkbtn + .cp-sec { border-top: 0; margin-top: 4px; padding-top: 6px; }
+
+/* Foglio Cambiare comparto */
+.ci-card.cur { box-shadow: inset 0 0 0 2px var(--accent); }
+.ci-l { margin-top: 12px; font-size: 14px; }
+.ci-l .mk { font-size: 15px; }
