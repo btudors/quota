@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.7.1';
+const APP_VERSION = '1.7.2';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -572,17 +572,21 @@ function heroTexts(sel, isLatest, M, G) {
   };
 }
 
-function viewHome(M) {
-  const P_ = priv();
+/* Pulsante a stati, in Panoramica e in Anni: verde "Aggiornato" se è tutto inserito, arancione se manca
+   qualcosa, rosso se mancano sia la busta paga sia i dati del fondo del mese in corso. Non c'è in privata. */
+function addBtnHTML(M) {
+  if (priv()) return '';
   const S = statoDati(M);
-  // Pulsante a stati: verde "Aggiornato" se è tutto inserito, arancione se manca qualcosa,
-  // rosso se mancano sia la busta paga sia i dati del fondo del mese in corso.
-  const addBtn = S.livello === 'ok'
+  return S.livello === 'ok'
     ? `<button type="button" class="addbtn ok" data-act="ins-open" aria-label="Dati aggiornati, apri l'inserimento"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span class="lbl">Aggiornato</span></button>`
     : `<button type="button" class="addbtn ${S.livello}" data-act="ins-open" aria-label="${S.livello === 'bad' ? 'Mancano i dati del mese, inserisci' : 'Mancano alcuni dati, inserisci'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Inserisci</span></button>`;
+}
+
+function viewHome(M) {
+  const P_ = priv();
   let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">${esc(data.fondo.nome)}${M.last ? ' · ' + esc(M.last.c) : ''}</div>${privPill()}</div>
     <div class="title-row"><h1>Panoramica</h1><div class="head-actions">
-      ${P_ ? '' : addBtn}
+      ${addBtnHTML(M)}
       ${privBtn()}
     </div></div></div>`;
 
@@ -793,7 +797,7 @@ function viewAnni(M) {
   const ys = yearsRange(M);
   if (!ui.year || ys.indexOf(ui.year) < 0) ui.year = ys[ys.length - 1];
   const Y = ui.year, tk = todayKey();
-  let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">Resoconto</div>${privPill()}</div><div class="title-row"><h1>Anno ${Y}</h1><div class="head-actions">${privBtn()}</div></div></div>
+  let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">Resoconto</div>${privPill()}</div><div class="title-row anni"><h1 style="white-space:nowrap">Anno ${Y}</h1><div class="head-actions">${addBtnHTML(M)}${privBtn()}</div></div></div>
     <div class="seg" role="group" aria-label="Scegli l'anno">${ys.map((y) => `<button type="button" data-act="year" data-v="${y}" aria-pressed="${y === Y}">${y}</button>`).join('')}</div>`;
   html += bannerNonDedotti(M);
 

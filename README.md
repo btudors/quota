@@ -52,7 +52,7 @@ Card in Panoramica: (contributo volontario + contributo azienda + rendimento mat
 In Panoramica: **Tutto** mostra il rendimento sul versato dall'adesione; **12 mesi** il rendimento ponderato nel tempo (variazione del valore quota, senza l'effetto dei versamenti) e, fuori dalla modalità privata, il guadagno del periodo. Il controllo busta paga contro accrediti è in Anni › Trimestri.
 
 ## Pulsante Inserisci
-In Panoramica, al posto della scheda "mese da completare": **verde "Aggiornato"** se busta paga e dati del fondo del mese in corso ci sono; **arancione** se ne manca uno o manca la busta paga di un mese precedente; **rosso** se mancano entrambi. In cima alla pagina Inserisci un riquadro dice cosa manca. I dati del fondo dei mesi passati non vengono segnalati: dal sito non si recuperano più.
+In Panoramica e in Anni, accanto al titolo: **verde "Aggiornato"** se busta paga e dati del fondo del mese in corso ci sono; **arancione** se ne manca uno o manca la busta paga di un mese precedente; **rosso** se mancano entrambi. In cima alla pagina Inserisci un riquadro dice cosa manca. I dati del fondo dei mesi passati non vengono segnalati: dal sito non si recuperano più.
 
 ## Pensione
 Scheda nella barra in basso. Previsione al pensionamento, in euro di oggi, a tre livelli:
