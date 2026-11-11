@@ -460,7 +460,7 @@ function render() {
   if (!data) { tab.hidden = true; app.innerHTML = viewWelcome(); renderGuida(); return; }
   tab.hidden = false;
   if (priv() && !PRIV_TABS.includes(ui.tab)) ui.tab = 'home';
-  if (priv()) ui.sheet = null;
+  if (priv() && !(ui.sheet && ui.sheet.type === 'compinfo')) ui.sheet = null;
   document.body.classList.toggle('privata', priv());
   const M = model();
   const views = { home: viewHome, anni: viewAnni, inserisci: viewInserisci, pensione: viewPensione, impostazioni: viewImpostazioni };
@@ -759,6 +759,7 @@ function cardComparto(M) {
     html += `<div class="cp-sec"><div class="cp-h"><span>Rischio</span></div>
       <div class="risk3" role="img" aria-label="Rischio ${['basso', 'medio', 'più alto'][I.livello - 1]} tra i comparti del fondo">${COMPARTI.map((n, i) => `<div class="${i + 1 === I.livello ? 'on' : i + 1 < I.livello ? 'fill' : ''}"><span></span>${n}</div>`).join('')}</div>
       <div class="sub" style="margin-top:8px">${I.garanzia ? esc(I.garanzia) + '. ' : 'Nessuna garanzia: il valore può anche scendere. '}${worst ? `Anno peggiore <b class="bad-t num">${pct(I.rendimenti[worst][0] / 100)}</b> (${worst}), migliore <b class="ok-t num">${pct(I.rendimenti[best][0] / 100)}</b> (${best}).` : ''}</div></div>`;
+    html += `<button type="button" class="linkbtn" data-act="cmp-info">Confronta i comparti</button>`;
     html += `<button type="button" class="linkbtn" data-act="cmp-det" aria-expanded="${!!ui.cmpDet}">${ui.cmpDet ? 'Nascondi investimenti e rendimenti' : 'Investimenti e rendimenti'}</button>`;
     if (ui.cmpDet) {
       const A = I.aree, g = [['Stati Uniti', A['Stati Uniti']], ['Italia', A['Italia']], ['Resto d\'Europa', A['Altri Paesi area euro'] + A['Altri Paesi UE']],
@@ -1652,7 +1653,9 @@ function viewImpostazioni(M) {
 
     <h3 class="group">Comparti</h3>
     <section class="card flush" style="margin-top:0">${cmpRows || '<div class="row sub">Nessun comparto registrato</div>'}
-      <button type="button" class="listlink" data-act="sheet" data-v="comparto">+ Aggiungi un cambio di comparto</button></section>
+      <button type="button" class="listlink" data-act="cmp-info">Confronta i comparti</button>
+      <button type="button" class="listlink" data-act="sheet" data-v="comparto">+ Registra un cambio di comparto</button></section>
+    <div class="note">Per cambiare comparto si fa richiesta al fondo. Qui registri il cambio quando è avvenuto, così i conti restano giusti.</div>
 
     <h3 class="group">Aliquote</h3>
     <section class="card flush" style="margin-top:0">${aliqRows}
@@ -1720,7 +1723,8 @@ function renderSheet() {
   const head = (t) => `<div class="grabber"></div><div class="sheet-head"><button type="button" data-act="sheet-close">Annulla</button><span class="t">${t}</span><button type="button" data-act="sheet-save" style="font-weight:600">Salva</button></div>`;
   let body = '';
   if (s.type === 'comparto') {
-    body = head('Cambio di comparto') + `<h3 class="group">Dal mese</h3><section class="card flush" style="margin-top:0">
+    body = head('Cambio di comparto') + `<div class="banner info" style="margin:12px 16px 0;border-radius:14px">Qui registri un cambio <b>già fatto</b> presso il fondo, per tenere i conti giusti: Quota non sposta la tua posizione. <button type="button" class="chipbtn" style="margin-top:8px" data-act="cmp-info">Confronta i comparti prima di cambiare</button></div>
+      <h3 class="group">Dal mese</h3><section class="card flush" style="margin-top:0">
       <div class="field"><label for="s-dal">Mese</label><input id="s-dal" type="month" data-s="dal" value="${esc(s.dal || todayKey())}"></div>
       <div class="field"><label for="s-nome">Comparto</label><select id="s-nome" data-s="nome">${COMPARTI.map((c) => `<option ${c === s.nome ? 'selected' : ''}>${c}</option>`).join('')}</select></div></section>
       <div class="note">Le valorizzazioni da quel mese in poi verranno attribuite al nuovo comparto.</div>`;
@@ -1767,7 +1771,55 @@ function renderSheet() {
       </section>
       <div class="note">Valori accettati tra 0,05% e 5%. Puoi sempre tornare ai valori ufficiali.</div>`;
   }
+  if (s.type === 'compinfo') body = compInfoHTML();
   root.innerHTML = `<div class="scrim" data-act="sheet-scrim"><div class="sheet" role="dialog" aria-modal="true">${body}<div id="sheet-err"></div></div></div>`;
+}
+
+/* Foglio "Cambiare comparto": i tre comparti a confronto, regole del cambio e declaratoria. Solo dati pubblici. */
+const PRO_CONTRO = {
+  Sicuro: { pro: ['Restituzione del capitale versato alla scadenza della convenzione', 'Oscillazioni piccole da un anno all\'altro'],
+    contro: ['Rendimento atteso più basso: nel lungo periodo i risparmi crescono poco', 'Costi più alti dei tre comparti'] },
+  Bilanciato: { pro: ['Una parte in azioni per crescere, la maggior parte in obbligazioni', 'Oscillazioni più contenute del Dinamico'],
+    contro: ['Nessuna garanzia: ci sono anni negativi', 'Rendimento atteso più basso del Dinamico'] },
+  Dinamico: { pro: ['Rendimento atteso più alto nel lungo periodo', 'Costi più bassi dei tre comparti'],
+    contro: ['Oscillazioni più ampie: alcuni anni si perde anche molto', 'Nessuna garanzia, meno adatto a chi è vicino alla pensione'] }
+};
+function compInfoHTML() {
+  const R = effRef(), CC = R.fondo.comparti || {}, cur = data && data.comparti.length ? compartoFor(todayKey()) : null;
+  const card = (n) => {
+    const I = CC[n], P = PRO_CONTRO[n]; if (!I) return '';
+    const yrs = Object.keys(I.rendimenti).sort(), last = yrs[yrs.length - 1], vals = yrs.map((y) => I.rendimenti[y][0]);
+    const worst = yrs.length > 1 ? yrs[vals.indexOf(Math.min(...vals))] : null;
+    return `<section class="card ci-card${n === cur ? ' cur' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="title">${n}</div>${n === cur ? '<span class="pill ok">Il tuo</span>' : ''}</div>
+      <div class="sub">${esc(I.categoria)} · ${esc(I.orizzonte)}</div>
+      <div class="stack cp-bar" aria-hidden="true"><div style="width:${I.azioni}%;background:var(--accent)"></div><div style="width:${I.obbligazioni}%;background:var(--alt)"></div></div>
+      <div class="grid3" style="margin-top:12px">
+        <div><div class="kv-l">Azioni</div><div class="kv-v">${I.azioni}%</div></div>
+        <div><div class="kv-l">Rendimento ${last}</div><div class="kv-v ${I.rendimenti[last][0] >= 0 ? 'ok-t' : 'bad-t'}">${pct(I.rendimenti[last][0] / 100)}</div></div>
+        <div><div class="kv-l">Costi (ISC 10 anni)</div><div class="kv-v">${pctPlain(R.fondo.iscComparti[n])}</div></div>
+      </div>
+      ${worst ? `<div class="sub" style="margin-top:8px">Anno peggiore dal ${yrs[0]}: <b class="bad-t num">${pct(I.rendimenti[worst][0] / 100)}</b> (${worst})</div>` : ''}
+      <ul class="gl ci-l">${P.pro.map((t) => `<li class="si"><span class="mk" aria-hidden="true">+</span><span>${t}</span></li>`).join('')}${P.contro.map((t) => `<li class="no"><span class="mk" aria-hidden="true">−</span><span>${t}</span></li>`).join('')}</ul>
+    </section>`;
+  };
+  return `<div class="grabber"></div><div class="sheet-head"><span style="width:70px"></span><span class="t">Cambiare comparto</span><button type="button" data-act="sheet-close" style="font-weight:600">Fine</button></div>
+    <div class="note" style="margin-top:6px;font-size:14px">Previdenza Cooperativa ha tre comparti: cambiano quanto è investito in azioni, quindi quanto può crescere e quanto può oscillare il valore.</div>
+    ${COMPARTI.map(card).join('')}
+    <h3 class="group">Prima di cambiare</h3>
+    <section class="card"><ul class="gl" style="margin:0">
+      <li class="dotli"><span class="cdot acc"></span><span><b>Una volta l'anno al massimo</b>: tra un cambio e il successivo devono passare almeno 12 mesi.</span></li>
+      <li class="dotli"><span class="cdot acc"></span><span>Puoi spostare la posizione già accumulata, i contributi futuri o entrambi, anche dividendoli tra più comparti.</span></li>
+      <li class="dotli"><span class="cdot acc"></span><span>Il cambio vende le quote del comparto attuale e compra quelle del nuovo al valore di quel momento: se avviene dopo un calo, quella perdita non si recupera più nel comparto di prima.</span></li>
+      <li class="dotli"><span class="cdot acc"></span><span>Conta soprattutto quanti anni mancano alla pensione: ogni comparto ha un orizzonte consigliato.</span></li>
+      <li class="dotli"><span class="cdot acc"></span><span>Si chiede al fondo dall'area riservata o con il modulo "Cambio comparto". Eventuali costi sono nella Scheda costi del fondo.</span></li>
+    </ul></section>
+    <section class="card flush">
+      ${extLink(LINK_AREA, '<span>Area riservata: cambia comparto</span>' + ICON_EXT, 'listlink')}
+      ${extLink(CC.link || LINK_FONDO, '<span>Scheda ufficiale dei comparti</span>' + ICON_EXT, 'listlink')}
+      ${extLink(LINK_FONDO, '<span>Sito del fondo e questionario di autovalutazione</span>' + ICON_EXT, 'listlink')}
+    </section>
+    <div class="note" style="margin-bottom:8px">Quota non dà consigli d'investimento e non sceglie il comparto per te: questo riepilogo usa solo i dati pubblici del fondo (${esc(CC.al ? 'al ' + isoLabel(CC.al) : '')}). I rendimenti passati non sono indicativi di quelli futuri. Per scegliere, il fondo mette a disposizione il questionario di autovalutazione e la Nota informativa; per una valutazione sul tuo caso rivolgiti al fondo o a un consulente.</div>`;
 }
 
 function openSheet(type, id) {
@@ -1785,7 +1837,8 @@ function openSheet(type, id) {
     const pr = data.prospetto;
     ui.sheet = { type, nascita: data.pensione.nascita || '', anno: pr && pr.anno ? String(pr.anno) : '', dataPensione: pr ? pr.dataPensione : '',
       posFin: pr ? num(pr.posizioneFinale, 2) : '', rendita: pr ? num(pr.renditaAnnua, 2) : '', adesione: pr ? pr.adesione : null, verifica: pr ? pr.verifica : null, fonte: pr ? pr.fonte : 'mano' };
-  } else ui.sheet = { type, dal: todayKey(), nome: 'Dinamico' };
+  } else if (type === 'compinfo') ui.sheet = { type };
+  else ui.sheet = { type, dal: todayKey(), nome: 'Dinamico' };
   renderSheet();
 }
 
@@ -1942,6 +1995,7 @@ document.addEventListener('click', (ev) => {
     case 'export-csv': exportCSV(); break;
     case 'wipe': if (confirm('Eliminare tutti i dati da questo telefono? Fai prima un backup.')) { localStorage.removeItem(STORE_KEY); data = null; render(); } break;
     case 'sheet': openSheet(v); break;
+    case 'cmp-info': openSheet('compinfo'); { const sh = document.querySelector('.sheet'); if (sh) sh.scrollTop = 0; } break;
     case 'vv-new': openSheet('volontario'); break;
     case 'vv-edit': openSheet('volontario', v); break;
     case 'vv-ded': if (ui.sheet) { ui.sheet.dedotto = v === '1'; if (ui.sheet.dedotto) ui.sheet.comunicato = false; renderSheet(); } break;

@@ -341,7 +341,7 @@ function guidaSezioni() {
       <h4>Le schede</h4><ul class="gl">
         <li class="dotli"><span class="cdot acc"></span><span><b>Ogni 1 € di tasca tua</b>: quanto è diventato ogni euro uscito davvero da te, contando contributo dell'azienda, rendimento e IRPEF risparmiata. Il TFR resta fuori, perché sarebbe tuo comunque.</span></li>
         <li class="dotli"><span class="cdot acc"></span><span><b>E se non avessi aderito?</b>: il confronto con il TFR lasciato in azienda e con fondi aperti e PIP.</span></li>
-        <li class="dotli"><span class="cdot acc"></span><span><b>Comparto</b>: valore quota, costi, quanto è in azioni e in obbligazioni, il rischio rispetto agli altri comparti del fondo. Con <b>Investimenti e rendimenti</b> vedi in quali Paesi investe e il rendimento anno per anno, confrontato con il benchmark. Sono dati pubblici del fondo, aggiornati una volta l'anno.</span></li>
+        <li class="dotli"><span class="cdot acc"></span><span><b>Comparto</b>: valore quota, costi, quanto è in azioni e in obbligazioni, il rischio rispetto agli altri comparti del fondo. Con <b>Investimenti e rendimenti</b> vedi in quali Paesi investe e il rendimento anno per anno, confrontato con il benchmark. Con <b>Confronta i comparti</b> vedi i tre comparti del fondo uno accanto all'altro, con vantaggi, rischi e regole per cambiare. Sono dati pubblici del fondo, aggiornati una volta l'anno.</span></li>
         <li class="dotli"><span class="cdot acc"></span><span><b>Spazio deducibile</b>: quanto puoi ancora versare nell'anno con il vantaggio fiscale. Da qui aggiungi anche un versamento fuori busta.</span></li></ul>` },
 
     { id: 'anni', t: 'Anni', s: 'Resoconto, trimestri, deducibilità', ill: ILL.anni, b: `
