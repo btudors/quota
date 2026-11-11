@@ -42,7 +42,7 @@ Impostazioni › Promemoria › **Giorno di paga** (1–31, salvato anche nel ba
 In Panoramica e in Anni il pulsante a **occhio** nasconde tutti gli importi: per mostrare l'app a qualcuno senza far vedere quanto c'è nel fondo. L'app resta come l'hai lasciata anche dopo averla chiusa.
 - Al posto degli euro: rendimento %, confronto con TFR in azienda, fondi aperti e PIP in base 100 (il tuo fondo = 100), composizione "su ogni 100 € versati", spazio deducibile in % del limite. In Anni, in alto, solo "Versato nell'anno" e i mesi registrati.
 - Restano visibili valore quota e costi del comparto (dati pubblici del fondo); il numero di quote no.
-- Pensione mostra le previsioni in euro (capitale, rendita, scenari, calcolatore): sono stime future. Restano nascosti solo posizione di oggi e guadagno del fondo, e "Sei in linea?" resta in %. Inserimento, Impostazioni, backup ed export non sono raggiungibili finché la modalità è attiva.
+- Pensione mostra le previsioni in euro (capitale, rendita, scenari, calcolatore): sono stime future. Resta nascosta solo la posizione di oggi, e "Sei in linea?" resta in %. Inserimento, Impostazioni, backup ed export non sono raggiungibili finché la modalità è attiva.
 - Tecnica: ogni importo passa da `eur()`/`eurS()` (la pagina Pensione usa di proposito `eurF()`/`eurFS()`, sempre visibili), che in modalità privata restituiscono sempre `€ •••••` (5 pallini, mai il numero di cifre vero). Nuove schermate: usare sempre questi formattatori, mai `num()` per importi.
 
 ## Ogni 1 € di tasca tua
