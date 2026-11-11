@@ -145,7 +145,7 @@ function comandiHTML() {
 /* ======================= Introduzione ======================= */
 function introSteps() {
   const nuovo = !data;
-  // Su iPhone, in Safari, l'app sulla Home ha una memoria separata: si installa e si riparte dall'icona.
+  // Nel browser: si consiglia di installarla, ma si può continuare (con i rischi spiegati).
   const safariIOS = isIOS() && !isStandalone();
   const s = [
     { id: 'benvenuto', ill: ILL.benvenuto, t: 'Benvenuto in Quota', c: 1,
@@ -153,7 +153,6 @@ function introSteps() {
           <p>Ci vogliono due minuti al mese. Questa introduzione ne dura uno.</p>` },
   ];
   if (!isStandalone()) s.push({ id: 'installa', ill: ILL.installa, t: 'Salva Quota sul telefono', b: installaHTML(safariIOS) });
-  if (safariIOS) return s;
   s.push(
     { id: 'privacy', ill: ILL.privacy, t: 'I tuoi dati restano qui', b: datiSalvatiHTML() + '<p class="small">Cancellare l\'icona dalla Home cancella anche i dati: ogni tanto esporta un backup da Impostazioni.</p>' },
     { id: 'fonti', ill: ILL.fonti, t: 'Ogni mese, due fonti',
@@ -190,12 +189,23 @@ function installaHTML(safariIOS) {
       <li>Tocca <b>Condividi</b>, il quadrato con la freccia in su. Nel Safari nuovo lo trovi anche nel menu <b>⋯</b> accanto all'indirizzo.</li>
       <li>Scorri e scegli <b>Aggiungi alla schermata Home</b>.</li>
       <li>Lascia attivo <b>Apri come app web</b> e tocca <b>Aggiungi</b>.</li>
-      <li>Chiudi Safari e apri Quota dall'icona sulla Home${safariIOS ? ': l\'introduzione riparte da lì' : ''}.</li></ol>`;
-  if (safariIOS) return `<p class="small" style="margin-top:0">Così si apre a tutto schermo, funziona offline e tiene i tuoi dati al sicuro.</p>${ios}
-    <div class="banner warn" style="border-radius:12px;margin-top:4px"><b>Non inserire dati qui in Safari.</b> L'app sulla Home ha una memoria tutta sua: quello che scrivi in Safari non la raggiunge.</div>`;
-  return `<p class="small" style="margin-top:0">Così si apre a tutto schermo, come un'app, e funziona anche senza internet.</p>
-    <h4 class="ih">iPhone, in Safari</h4>${ios}
-    <h4 class="ih">Android, in Chrome</h4><ol class="gsteps"><li>Tocca il menu <b>⋮</b> in alto a destra.</li><li>Scegli <b>Installa app</b> o <b>Aggiungi a schermata Home</b>, poi apri Quota dall'icona.</li></ol>`;
+      <li>Apri Quota dall'icona sulla Home: l'introduzione riparte da lì.</li></ol>`;
+  const android = `<ol class="gsteps"><li>Tocca il menu <b>⋮</b> in alto a destra.</li><li>Scegli <b>Installa app</b> o <b>Aggiungi a schermata Home</b>, poi apri Quota dall'icona.</li></ol>`;
+  const rischi = safariIOS ? [
+    '<b>Dopo 7 giorni</b> in cui usi Safari senza aprire Quota, iOS può cancellare tutti i dati inseriti. È una regola di privacy di Safari: l\'app sulla Home non ce l\'ha.',
+    'Cancellando cronologia e dati dei siti di Safari si cancella anche Quota. In navigazione privata non resta niente.',
+    'Se la installi più avanti, i dati non passano da soli: l\'app sulla Home ha una memoria separata. Ti servirà esportare un backup e importarlo lì.',
+    'Niente schermo intero: resta la barra di Safari.'
+  ] : [
+    'Cancellando i dati di navigazione del browser si cancella anche Quota. In navigazione in incognito non resta niente.',
+    'Se il telefono ha poco spazio, il browser può liberarlo cancellando i dati dei siti.',
+    'Niente schermo intero: resta la barra del browser.'
+  ];
+  return `<p class="small" style="margin-top:0">Così si apre a tutto schermo come un'app, funziona anche senza internet e i dati sono al sicuro.</p>
+    ${safariIOS ? ios : `<h4 class="ih">iPhone, in Safari</h4>${ios}<h4 class="ih">Android, in Chrome</h4>${android}`}
+    <div class="risk"><div class="risk-t">Se continui nel browser</div>
+      <ul>${rischi.map((r) => `<li>${r}</li>`).join('')}</ul>
+      <div class="risk-ok">Chiudere la pagina o il browser invece non cancella niente.</div></div>`;
 }
 
 function introSetupHTML() {
@@ -270,9 +280,9 @@ function introHTML() {
   } else if (st.id === 'setup') {
     foot = `<div class="btnrow" style="margin-top:0"><button type="button" class="btn grey" data-act="intro-prev">Indietro</button>
       <button type="button" class="btn primary" data-act="intro-start">Inizia</button></div>`;
-  } else if (st.id === 'installa' && last) {
-    foot = `<div class="btnrow" style="margin-top:0"><button type="button" class="btn grey" data-act="intro-prev">Indietro</button>
-      <button type="button" class="btn primary" data-act="intro-safari">Ho capito</button></div>`;
+  } else if (st.id === 'installa') {
+    foot = `<button type="button" class="btn primary big" data-act="intro-safari">La salvo sulla Home</button>
+      <button type="button" class="btn grey big" style="margin-top:10px" data-act="intro-next">Continua nel browser</button>`;
   } else if (last) {
     foot = '<button type="button" class="btn primary big" data-act="intro-skip">Inizia a usare Quota</button>';
   } else {
@@ -296,6 +306,7 @@ function guidaSezioni() {
   return [
     { id: 'primi', t: 'Primi passi', s: 'Installazione, impostazioni, il ritmo mensile', ill: ILL.benvenuto, b: `
       <h4>Installa l'app</h4><p>Apri l'indirizzo in <b>Safari</b>, tocca Condividi › <b>Aggiungi alla schermata Home</b> e da lì in poi usa sempre l'icona. I dati dell'app sulla Home e quelli di Safari sono separati.</p>
+      <p class="small">Puoi usarla anche in Safari, ma lì i dati sono meno al sicuro: se per 7 giorni usi Safari senza aprire Quota, iOS può cancellarli, e si cancellano anche pulendo cronologia e dati dei siti. L'app sulla Home non ha questi limiti. Chiudere la pagina non cancella niente.</p>
       <h4>Controlla le impostazioni</h4><p>In Impostazioni verifica comparto, aliquote (tuo contributo e azienda, in % dell'imponibile), giorno di paga e scaglione IRPEF. Ogni cambio di comparto o di aliquota vale da quel mese in poi: i mesi passati restano calcolati come all'epoca.</p>
       <h4>Il ritmo</h4><ol class="gsteps"><li>Quando arriva la busta paga, caricala in Inserisci.</li><li>Dopo la fine del mese, quando il fondo ha pubblicato il valore quota, copia i dati dall'area riservata.</li><li>Ogni tanto esporta un backup.</li></ol>
       <div class="btnrow"><button type="button" class="btn soft" data-act="intro-open">Rivedi l'introduzione</button></div>` },

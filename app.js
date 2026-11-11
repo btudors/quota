@@ -492,7 +492,7 @@ function viewWelcome() {
     <button type="button" class="btn grey" data-act="start-empty">Inizia da zero</button>
     <button type="button" class="btn soft" data-act="intro-open">Guarda l'introduzione</button>
     ${isIOS() && !isStandalone()
-      ? '<div class="card banner warn" style="margin:24px 0 0;text-align:left;border-radius:14px"><b>Prima salvala sulla Home.</b> In Safari tocca Condividi › Aggiungi alla schermata Home, poi apri Quota dall\'icona: i dati inseriti qui in Safari non passano all\'app.</div>'
+      ? '<div class="card banner warn" style="margin:24px 0 0;text-align:left;border-radius:14px"><b>Meglio salvarla sulla Home.</b> Condividi › Aggiungi alla schermata Home, poi apri Quota dall\'icona. In Safari i dati possono essere cancellati dopo 7 giorni senza aprirla e non passano all\'app sulla Home.</div>'
       : isStandalone() ? '' : '<p style="font-size:13px; margin-top:24px">Per installarla: in Safari tocca Condividi › Aggiungi alla schermata Home.</p>'}
     <p style="font-size:12px; margin-top:16px">${DISCLAIMER}</p>
   </div>`;
