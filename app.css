@@ -315,7 +315,7 @@ body.ovl { overflow: hidden; }
 .intro h2 { margin: 0 0 10px; font-size: 28px; font-weight: 700; letter-spacing: -.02em; text-align: center; outline: none; }
 .intro-text { font-size: 16px; line-height: 1.45; color: var(--text-2); }
 .intro-text p { margin: 0 0 12px; }
-.intro-text > p:first-child { text-align: center; }
+.intro-text > p:first-child, .intro-text.center p { text-align: center; }
 .intro-text .small, .guida-body .small { font-size: 14px; color: var(--muted); }
 .intro-form { margin: 8px 0 0; }
 .intro-form .field input { width: 120px; }

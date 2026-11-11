@@ -1,4 +1,4 @@
-// Quota – introduzione alla prima apertura e guida completa (Impostazioni › Aiuto).
+// Quota – introduzione alla prima apertura e guida completa (in cima alle Impostazioni).
 // Le illustrazioni sono SVG disegnati qui: pochi KB in tutto, seguono chiaro/scuro e non contengono dati personali.
 // Usa funzioni e stato di app.js (data, ui, render, …), chiamati solo dopo il suo caricamento.
 
@@ -54,10 +54,10 @@ const ILL = {
     <rect x="128" y="50" width="24" height="50" rx="6" class="f-acc"/><rect x="134" y="56" width="12" height="3" rx="1.5" class="f-white"/>`),
 
   stato: svg(`
-    ${[['f-ok', 'Aggiornato', ICO_OK, 'Busta paga e fondo: fatto'], ['f-warn', 'Inserisci', ICO_PLUS, 'Manca un dato'], ['f-bad', 'Inserisci', ICO_PLUS, 'Mancano entrambi']].map((r, i) => `
-      <g transform="translate(24 ${18 + i * 42})"><rect width="232" height="34" rx="17" class="f-card s-line" stroke-width="1.5"/>
-        <rect x="5" y="5" width="96" height="24" rx="12" class="${r[0]}"/><g transform="translate(20 17)">${r[2]}</g>
-        <text x="34" y="21.5" class="t-pill">${r[1]}</text><text x="112" y="21.5" class="t-row">${r[3]}</text></g>`).join('')}`),
+    ${[['f-ok', 'Aggiornato', ICO_OK, 'Mese completo'], ['f-warn', 'Inserisci', ICO_PLUS, 'Manca un dato'], ['f-bad', 'Inserisci', ICO_PLUS, 'Mancano entrambi']].map((r, i) => `
+      <g transform="translate(10 ${18 + i * 42})"><rect width="260" height="34" rx="17" class="f-card s-line" stroke-width="1.5"/>
+        <rect x="5" y="5" width="108" height="24" rx="12" class="${r[0]}"/><g transform="translate(20 17)">${r[2]}</g>
+        <text x="71" y="21.5" text-anchor="middle" class="t-pill">${r[1]}</text><text x="123" y="21.5" class="t-row">${r[3]}</text></g>`).join('')}`),
 
   impostazioni: svg(`
     <circle cx="140" cy="78" r="70" class="f-soft"/>
@@ -133,7 +133,7 @@ function comandiHTML() {
 function introSteps() {
   const nuovo = !data;
   const s = [
-    { id: 'benvenuto', ill: ILL.benvenuto, t: 'Benvenuto in Quota',
+    { id: 'benvenuto', ill: ILL.benvenuto, t: 'Benvenuto in Quota', c: 1,
       b: `<p>Quota tiene d'occhio la tua previdenza complementare. Ogni mese inserisci due dati e vedi quanto vale la posizione, quanto rende e quanto ti ha dato in più rispetto al TFR lasciato in azienda.</p>
           <p>Ci vogliono due minuti al mese. Questa introduzione ne dura uno.</p>` },
     { id: 'privacy', ill: ILL.privacy, t: 'I tuoi dati restano qui', b: datiSalvatiHTML() + '<p class="small">Cancellare l\'icona dalla Home cancella anche i dati: ogni tanto esporta un backup da Impostazioni.</p>' },
@@ -149,16 +149,21 @@ function introSteps() {
           <li class="dotli"><span class="cdot bad"></span><span><b>Rosso</b>: mancano entrambi.</span></li></ul>
           <p class="small">Toccalo per andare all'inserimento: in cima trovi scritto cosa manca.</p>` }
   ];
-  if (nuovo) s.push({ id: 'setup', ill: ILL.impostazioni, t: 'Impostiamo l\'app', b: introSetupHTML() });
-  else s.push({ id: 'riepilogo', ill: ILL.impostazioni, t: 'Le tue impostazioni', b: introRiepilogoHTML() });
-  s.push({ id: 'promemoria', ill: ILL.promemoria, t: 'Promemoria e privacy',
+  const promemoria = { id: 'promemoria', ill: ILL.promemoria, t: 'Promemoria e privacy',
     b: `<ul class="gl"><li class="dotli"><span class="cdot acc"></span><span><b>Promemoria.</b> Le web app non mandano notifiche da sole: in Impostazioni › Promemoria trovi come farle arrivare con Comandi Rapidi.</span></li>
         <li class="dotli"><span class="cdot acc"></span><span><b>Modalità privata.</b> Il pulsante a occhio in Panoramica nasconde gli importi e mostra le percentuali, per far vedere l'app senza far vedere quanto hai.</span></li>
-        <li class="dotli"><span class="cdot acc"></span><span><b>Backup.</b> Impostazioni › Esporta backup, da salvare in File › iCloud Drive. Serve anche per cambiare telefono.</span></li></ul>` });
-  s.push({ id: 'pronto', ill: ILL.pronto, t: nuovo ? 'Pronto per partire' : 'Tutto qui',
-    b: nuovo
-      ? `<p>Se hai già un backup di Quota, importalo e ritrovi tutto. Altrimenti parti con le impostazioni appena scelte e inserisci la prima busta paga.</p><p class="small">La guida completa è sempre in Impostazioni › Aiuto.</p>`
-      : `<p>Puoi rivedere questa introduzione quando vuoi. In Impostazioni › Aiuto trovi anche la guida completa, schermata per schermata.</p>` });
+        <li class="dotli"><span class="cdot acc"></span><span><b>Backup.</b> Impostazioni › Esporta backup, da salvare in File › iCloud Drive. Serve anche per cambiare telefono.</span></li></ul>` };
+  s.push(promemoria);
+  if (nuovo) {
+    s.push({ id: 'backup', ill: ILL.backup, t: 'Hai già un backup?', c: 1,
+      b: `<p>Se hai usato Quota su un altro telefono, o l'hai reinstallata, importa il file <b>quota-backup</b> da File: ritrovi storico e impostazioni e sei pronto.</p>
+          <p>Se è la prima volta, imposta l'app in un passo.</p>` });
+    s.push({ id: 'setup', ill: ILL.impostazioni, t: 'Impostiamo l\'app', b: introSetupHTML() });
+  } else {
+    s.push({ id: 'riepilogo', ill: ILL.impostazioni, t: 'Le tue impostazioni', b: introRiepilogoHTML() });
+    s.push({ id: 'pronto', ill: ILL.pronto, t: 'Tutto qui', c: 1,
+      b: '<p>Puoi rivedere questa introduzione quando vuoi. In Impostazioni trovi anche la guida completa, schermata per schermata.</p>' });
+  }
   return s;
 }
 
@@ -226,10 +231,14 @@ function introHTML() {
   const steps = introSteps(), i = Math.min(ui.intro.step, steps.length - 1), st = steps[i], last = i === steps.length - 1;
   const dots = steps.map((_, n) => `<button type="button" class="idot" data-act="intro-dot" data-v="${n}" ${n === i ? 'aria-current="step"' : ''} aria-label="Passo ${n + 1}"></button>`).join('');
   let foot;
-  if (last && !data) {
-    foot = `<button type="button" class="btn primary big" data-act="intro-start">Inizia</button>
-      <label class="btn grey big" for="intro-imp" style="margin-top:10px">Importa un backup</label>
-      <input id="intro-imp" class="sr" type="file" accept=".json,application/json" data-act="import">`;
+  if (st.id === 'backup') {
+    foot = `<label class="btn primary big" for="intro-imp">Importa il backup</label>
+      <input id="intro-imp" class="sr" type="file" accept=".json,application/json" data-act="import">
+      <div class="btnrow" style="margin-top:10px"><button type="button" class="btn grey" data-act="intro-prev">Indietro</button>
+      <button type="button" class="btn soft" data-act="intro-next">No, inizio da zero</button></div>`;
+  } else if (st.id === 'setup') {
+    foot = `<div class="btnrow" style="margin-top:0"><button type="button" class="btn grey" data-act="intro-prev">Indietro</button>
+      <button type="button" class="btn primary" data-act="intro-start">Inizia</button></div>`;
   } else if (last) {
     foot = '<button type="button" class="btn primary big" data-act="intro-skip">Inizia a usare Quota</button>';
   } else {
@@ -242,7 +251,7 @@ function introHTML() {
     <div class="intro-body ${ui.intro.dir > 0 ? 'in-r' : ui.intro.dir < 0 ? 'in-l' : 'in-f'}" data-step="${st.id}">
       <div class="intro-ill">${st.ill}</div>
       <h2 id="intro-t" tabindex="-1">${st.t}</h2>
-      <div class="intro-text">${st.b}</div>
+      <div class="intro-text${st.c ? ' center' : ''}">${st.b}</div>
     </div>
     <div class="intro-foot"><div class="idots" role="group" aria-label="Passi">${dots}</div>${foot}</div>
   </div>`;

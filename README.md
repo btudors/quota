@@ -9,10 +9,10 @@ Web app personale per tenere sotto controllo la previdenza complementare da iPho
 ## Come si usa
 1. Apri l'indirizzo in **Safari** sull'iPhone.
 2. Condividi › **Aggiungi alla schermata Home**.
-3. Al primo avvio parte l'**introduzione** (7 passi): cosa fa l'app, cosa salva e cosa no, come inserire i dati, configurazione iniziale (comparto, iscrizione, aliquote, giorno di paga), poi **Inizia** oppure **Importa un backup**.
+3. Al primo avvio parte l'**introduzione** (7 passi): cosa fa l'app, cosa salva e cosa no, le due fonti dei dati, il pulsante Inserisci, promemoria e privacy, poi **Hai già un backup?** (Importa il backup) e, solo se si parte da zero, la configurazione (comparto, iscrizione, aliquote, giorno di paga). Chi ha già dei dati vede al posto degli ultimi due passi il riepilogo delle impostazioni.
 
 ## Introduzione e guida
-- `guida.js` contiene l'introduzione a passi e la **guida completa** (Impostazioni › Aiuto › Guida completa, 13 sezioni). Si rivede da Impostazioni › Rivedi l'introduzione.
+- `guida.js` contiene l'introduzione a passi e la **guida completa** (in cima alle Impostazioni › Guida completa, 13 sezioni). Si rivede da Impostazioni › Rivedi l'introduzione.
 - Le illustrazioni sono SVG disegnati nel codice (tutto il file, testi compresi, circa 37 KB, 12 KB compresso): seguono chiaro/scuro, non contengono dati personali e non vanno rifatte a ogni modifica come gli screenshot.
 - La versione dell'introduzione vista è in `quota.pref.v1` › `intro`. Per farla rivedere a tutti dopo un cambio importante, aumentare `INTRO_VER` in `guida.js`. In modalità privata non parte da sola.
 - Quando cambia una schermata, aggiornare la sezione corrispondente in `guidaSezioni()`.
