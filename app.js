@@ -1337,7 +1337,7 @@ function pensInLinea(M, B) {
 }
 
 /* Pagina Pensione: le previsioni restano in euro anche in modalità privata (sono stime future).
-   Si nascondono solo la posizione di oggi e il guadagno, che insieme a capitale e versato la ricostruirebbero. */
+   Si nasconde solo la posizione di oggi. */
 const eurF = (n, d = 2) => num(n, d) + ' €';
 const eurFS = (n, d = 2) => (n >= 0 ? '+' : '') + eurF(n, d);
 
@@ -1415,7 +1415,7 @@ function viewPensione(M) {
     <div class="yrow"><span><span class="dot" style="background:var(--vol)"></span>Tuo contributo</span><span class="num">${yp(X.s.sv)}</span></div>
     <div class="yrow"><span><span class="dot" style="background:var(--az)"></span>Azienda</span><span class="num">${yp(X.s.sa)}</span></div>
     <div class="yrow"><span><span class="dot" style="background:var(--tfr)"></span>TFR</span><span class="num">${yp(X.s.st)}</span></div>
-    <div class="yrow"><span>Guadagno del fondo</span><span class="num" style="color:var(--ok);font-weight:600">${P_ ? MASK : eurFS(X.guadagno, 0)}</span></div>
+    <div class="yrow"><span>Guadagno del fondo</span><span class="num" style="color:var(--ok);font-weight:600">${eurFS(X.guadagno, 0)}</span></div>
     <div class="yrow"><span>Posizione di oggi</span><span class="num">${P_ ? MASK : eurF(B.own, 0)}</span></div>
     ${pr ? `<div class="ynote ${Math.abs(X.s.v / pr.posizioneFinale - 1) < 0.05 ? 'ok' : 'warn'}">Previsione ufficiale del prospetto ${pr.anno || ''}: ${eurF(pr.posizioneFinale, 0) + ', rendita lorda ' + eurF(pr.renditaAnnua, 0) + ' l\'anno. Quota stima ' + eurFS(X.s.v - pr.posizioneFinale, 0) + '.'} La differenza viene dai dati più recenti e dalle ipotesi di calcolo.</div>`
       : `<div class="ynote warn">Rendita calcolata con un coefficiente generico. Aggiungi il prospetto annuale del fondo per la data e la rendita ufficiali.${P_ ? '' : ' <button type="button" class="chipbtn warn" style="margin-top:8px;background:var(--card)" data-act="sheet" data-v="pensdati">Aggiungi il prospetto</button>'}</div>`}
