@@ -292,10 +292,10 @@ function guidaSezioni() {
 
     { id: 'panoramica', t: 'Panoramica', s: 'Il grafico e le schede', ill: ILL.benvenuto, b: `
       <h4>Il grafico</h4><p>Mostra il valore della posizione. <b>Tutto</b> confronta con quanto hai versato dall'adesione; <b>12 mesi</b> mostra il rendimento del comparto senza l'effetto dei versamenti. Tocca o trascina sul grafico per vedere un mese.</p>
+      <p>Sotto il grafico, <b>Da dove arrivano i soldi</b>: quanto del versato dall'adesione viene dal TFR, dall'azienda e da te.</p>
       <h4>Le schede</h4><ul class="gl">
         <li class="dotli"><span class="cdot acc"></span><span><b>Ogni 1 € di tasca tua</b>: quanto è diventato ogni euro uscito davvero da te, contando contributo dell'azienda, rendimento e IRPEF risparmiata. Il TFR resta fuori, perché sarebbe tuo comunque.</span></li>
         <li class="dotli"><span class="cdot acc"></span><span><b>E se non avessi aderito?</b>: il confronto con il TFR lasciato in azienda e con fondi aperti e PIP.</span></li>
-        <li class="dotli"><span class="cdot acc"></span><span><b>Da dove arrivano i soldi</b>: quanto viene da te, dall'azienda, dal TFR e dai rendimenti.</span></li>
         <li class="dotli"><span class="cdot acc"></span><span><b>Spazio deducibile</b>: quanto puoi ancora versare nell'anno con il vantaggio fiscale. Da qui aggiungi anche un versamento fuori busta.</span></li></ul>` },
 
     { id: 'anni', t: 'Anni', s: 'Resoconto, trimestri, deducibilità', ill: ILL.anni, b: `

@@ -584,6 +584,28 @@ function addBtnHTML(M) {
     : `<button type="button" class="addbtn ${S.livello}" data-act="ins-open" aria-label="${S.livello === 'bad' ? 'Mancano i dati del mese, inserisci' : 'Mancano alcuni dati, inserisci'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Inserisci</span></button>`;
 }
 
+/* Da dove arrivano i soldi: dentro la scheda del valore (scura) oppure come scheda a sé se il grafico non c'è ancora. */
+function compHTML(M, inHero) {
+  if (!(M.tv > 0)) return '';
+  const P_ = priv(), w = (x) => Math.round(x / M.tv * 100) + '%';
+  const col = inHero ? { tfr: '#5B8EE6', az: '#F5A524', vol: '#A9D0FA' } : { tfr: 'var(--tfr)', az: 'var(--az)', vol: 'var(--vol)' };
+  const sub = P_ ? 'Su ogni 100 € versati dall\'adesione' : 'Versati dall\'adesione: ' + eur(M.tv);
+  const parts = [['TFR', M.ttfr, col.tfr], ['Azienda', M.taz, col.az], ['Tuo contributo', M.tvol, col.vol]];
+  const bar = `<div class="stack" aria-hidden="true">${parts.map((p) => `<div style="width:${w(p[1])};background:${p[2]}"></div>`).join('')}</div>`;
+  if (inHero) {
+    return `<div class="hero-comp" aria-label="Da dove arrivano i versamenti">
+      <div class="top"><span class="lbl">Da dove arrivano i soldi</span><span class="when">${sub}</span></div>${bar}
+      <div class="hc-grid">${parts.map((p) => `<div><div class="hc-l"><span class="dot" style="background:${p[2]}"></span>${p[0]}</div>
+        <div class="hc-v num">${P_ ? Math.round(p[1] / M.tv * 100) + ' €' : eur(p[1], 0)}</div>${P_ ? '' : `<div class="hc-p num">${w(p[1])}</div>`}</div>`).join('')}</div>
+    </div>`;
+  }
+  const v = (x) => P_ ? Math.round(x / M.tv * 100) + ' €' : `${eur(x)} <span style="color:var(--muted)">· ${w(x)}</span>`;
+  return `<section class="card" aria-label="Da dove arrivano i versamenti">
+    <div class="title">Da dove arrivano i soldi</div><div class="sub">${sub}</div>${bar}
+    <div class="legend-list">${parts.map((p) => `<div><span class="k"><span class="dot" style="width:10px;height:10px;background:${p[2]}"></span>${p[0] === 'Azienda' ? 'Contributo azienda' : p[0] === 'Tuo contributo' ? 'Contributo volontario' : p[0]}</span><span class="num">${v(p[1])}</span></div>`).join('')}</div>
+  </section>`;
+}
+
 function viewHome(M) {
   const P_ = priv();
   let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">${esc(data.fondo.nome)}${M.last ? ' · ' + esc(M.last.c) : ''}</div>${privPill()}</div>
@@ -624,9 +646,11 @@ function viewHome(M) {
         ${G.hasGap ? '<span><span class="sw" style="border-top:2px dotted #5BE0A8"></span>Mese non registrato</span>' : ''}
       </div>
       <div class="hint" id="h-hint">${t.hint}</div>
+      ${compHTML(M, true)}
     </section>`;
   } else {
     html += `<section class="card"><div class="title">Ancora pochi dati</div><div class="sub">Il grafico compare dopo almeno due valori del fondo. Inserisci quote e valore quota dal sito del fondo.</div></section>`;
+    html += compHTML(M, false);
   }
 
   const C = comparison(M);
@@ -689,21 +713,6 @@ function viewHome(M) {
         <div><b>TFR in azienda</b>: rivalutazione di legge (1,5% + 75% dell'inflazione ISTAT), tassata al 17%. Il contributo volontario resta in busta paga, senza rendimento e senza deduzione fiscale.</div>
         <div style="color:var(--muted)">Non include la tassazione finale, più bassa nel fondo pensione (dal 15% al 9%). È una stima, non un consiglio d'investimento. Dati pubblici aggiornati al ${esc(C.R.aggiornato || C.R.versione)}.</div>
       </div>` : ''}
-    </section>`;
-  }
-
-  if (M.tv > 0) {
-    // Composizione
-    const w = (x) => Math.round(x / M.tv * 100) + '%';
-    const v = (x) => P_ ? Math.round(x / M.tv * 100) + ' €' : `${eur(x)} <span style="color:var(--muted)">· ${w(x)}</span>`;
-    html += `<section class="card" aria-label="Da dove arrivano i versamenti">
-      <div class="title">Da dove arrivano i soldi</div><div class="sub">${P_ ? 'Su ogni 100 € versati dall\'adesione' : 'Totale versato dall\'adesione: ' + eur(M.tv)}</div>
-      <div class="stack"><div style="width:${w(M.ttfr)};background:var(--tfr)"></div><div style="width:${w(M.taz)};background:var(--az)"></div><div style="width:${w(M.tvol)};background:var(--vol)"></div></div>
-      <div class="legend-list">
-        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--tfr)"></span>TFR</span><span class="num">${v(M.ttfr)}</span></div>
-        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--az)"></span>Contributo azienda</span><span class="num">${v(M.taz)}</span></div>
-        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--vol)"></span>Contributo volontario</span><span class="num">${v(M.tvol)}</span></div>
-      </div>
     </section>`;
   }
 

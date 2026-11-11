@@ -383,3 +383,13 @@ body.ovl { overflow: hidden; }
 .ill .t-pill { fill: #fff; font-size: 12px; font-weight: 700; }
 .ill .t-row { fill: var(--text-2); font-size: 11.5px; font-weight: 500; }
 .ill .t-dark { fill: var(--hero-2); font-size: 13px; font-weight: 700; }
+
+/* Da dove arrivano i soldi, dentro la scheda del valore */
+.hero-comp { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.12); }
+.hero-comp .top { align-items: baseline; flex-wrap: wrap; }
+.hero-comp .stack { background: rgba(255,255,255,.08); margin-top: 10px; }
+.hc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.hc-l { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hero-2); }
+.hc-l .dot { width: 8px; height: 8px; }
+.hc-v { font-size: 17px; font-weight: 700; color: #fff; margin-top: 3px; }
+.hc-p { font-size: 12px; color: var(--hero-2); margin-top: 1px; }

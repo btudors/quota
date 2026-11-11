@@ -55,6 +55,8 @@ In Panoramica e in Anni il pulsante a **occhio** nasconde tutti gli importi: per
 Card in Panoramica: (contributo volontario + contributo azienda + rendimento maturato su questi due) ÷ (contributo volontario − IRPEF risparmiata con la deduzione). Il TFR e il suo rendimento restano fuori: sarebbero tuoi comunque. La deduzione conta il volontario fino al limite dell'anno (dopo il contributo azienda), all'aliquota dello scaglione scelto in Impostazioni › Tasse (`data/riferimenti.json` › `irpef.aliquote`, chiave = anno da cui vale).
 
 ## Rendimento della posizione
+Nella stessa scheda, sotto il grafico, **Da dove arrivano i soldi**: versato dall'adesione diviso in TFR, azienda e tuo contributo (in modalità privata su 100 €). Se il grafico non c'è ancora, compare come scheda a sé al secondo posto.
+
 In Panoramica: **Tutto** mostra il rendimento sul versato dall'adesione; **12 mesi** il rendimento ponderato nel tempo (variazione del valore quota, senza l'effetto dei versamenti) e, fuori dalla modalità privata, il guadagno del periodo. Il controllo busta paga contro accrediti è in Anni › Trimestri.
 
 ## Pulsante Inserisci
