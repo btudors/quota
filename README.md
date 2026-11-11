@@ -9,7 +9,7 @@ Web app personale per tenere sotto controllo la previdenza complementare da iPho
 ## Come si usa
 1. Apri l'indirizzo in **Safari** sull'iPhone.
 2. Condividi › **Aggiungi alla schermata Home**.
-3. Al primo avvio parte l'**introduzione** (7 passi): cosa fa l'app, cosa salva e cosa no, le due fonti dei dati, il pulsante Inserisci, promemoria e privacy, poi **Hai già un backup?** (Importa il backup) e, solo se si parte da zero, la configurazione (comparto, iscrizione, aliquote, giorno di paga). Chi ha già dei dati vede al posto degli ultimi due passi il riepilogo delle impostazioni.
+3. Al primo avvio parte l'**introduzione**. Se Quota è aperta nel browser, il 2° passo spiega come salvarla sulla Home e lascia scegliere: **La salvo sulla Home** (chiude l'introduzione, che ripartirà dall'icona) o **Continua nel browser**, con i rischi (in Safari i dati si cancellano dopo 7 giorni di uso di Safari senza aprire Quota, o pulendo i dati dei siti; non passano all'app sulla Home). Passi (8 nel browser, 7 nell'app installata): cosa fa l'app, cosa salva e cosa no, le due fonti dei dati, il pulsante Inserisci, promemoria e privacy, poi **Hai già un backup?** (Importa il backup) e, solo se si parte da zero, la configurazione (comparto, iscrizione, aliquote, giorno di paga). Chi ha già dei dati vede al posto degli ultimi due passi il riepilogo delle impostazioni.
 
 ## Introduzione e guida
 - `guida.js` contiene l'introduzione a passi e la **guida completa** (in cima alle Impostazioni › Guida completa, 13 sezioni). Si rivede da Impostazioni › Rivedi l'introduzione.

@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.8.1';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -491,7 +491,9 @@ function viewWelcome() {
     <input id="imp-file" class="sr" type="file" accept=".json,application/json" data-act="import">
     <button type="button" class="btn grey" data-act="start-empty">Inizia da zero</button>
     <button type="button" class="btn soft" data-act="intro-open">Guarda l'introduzione</button>
-    <p style="font-size:13px; margin-top:24px">Per installarla: in Safari tocca Condividi › Aggiungi alla schermata Home.</p>
+    ${isIOS() && !isStandalone()
+      ? '<div class="card banner warn" style="margin:24px 0 0;text-align:left;border-radius:14px"><b>Meglio salvarla sulla Home.</b> Condividi › Aggiungi alla schermata Home, poi apri Quota dall\'icona. In Safari i dati possono essere cancellati dopo 7 giorni senza aprirla e non passano all\'app sulla Home.</div>'
+      : isStandalone() ? '' : '<p style="font-size:13px; margin-top:24px">Per installarla: in Safari tocca Condividi › Aggiungi alla schermata Home.</p>'}
     <p style="font-size:12px; margin-top:16px">${DISCLAIMER}</p>
   </div>`;
 }

@@ -78,6 +78,19 @@ const ILL = {
     <path d="M116 77l16 16 32-34" fill="none" class="s-white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
     ${[[50, 40, 'f-az'], [222, 34, 'f-vol'], [64, 118, 'f-tfr'], [216, 116, 'f-mint'], [34, 82, 'f-mint'], [246, 76, 'f-az']].map((c, i) => `<rect x="${c[0]}" y="${c[1]}" width="${8 + (i % 2) * 4}" height="${8 + (i % 2) * 4}" rx="2" transform="rotate(${i * 24} ${c[0]} ${c[1]})" class="${c[2]}"/>`).join('')}`),
 
+  installa: svg(`
+    <circle cx="140" cy="78" r="70" class="f-soft"/>
+    ${phone(34, 14, 92, 128)}
+    <rect x="42" y="26" width="76" height="80" rx="8" class="f-track"/>
+    <rect x="42" y="112" width="76" height="22" rx="11" class="f-track"/>
+    <g transform="translate(80 123)"><circle r="14" class="f-acc"/><path d="M0 4V-6M-4-2l4-4 4 4M-5 0v6h10V0" fill="none" class="s-white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <path d="M136 78h22" class="s-acc" stroke-width="2.6" stroke-dasharray="2 6" stroke-linecap="round"/><path d="M152 72l7 6-7 6" fill="none" class="s-acc" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    ${phone(166, 14, 92, 128)}
+    ${[0, 1, 2].map((r) => [0, 1, 2].map((c) => (r === 1 && c === 1) ? '' : `<rect x="${178 + c * 24}" y="${32 + r * 26}" width="18" height="18" rx="5" class="f-track"/>`).join('')).join('')}
+    <g transform="translate(212 67)"><rect x="-17" y="-17" width="34" height="34" rx="9" class="f-hero"/><polyline points="-10,8 -4,2 1,5 10,-7" fill="none" class="s-mint" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="17" cy="-17" r="8" class="f-ok"/><g transform="translate(17 -17) scale(.75)">${ICO_OK}</g></g>
+    <text x="212" y="98" text-anchor="middle" class="t-small">Quota</text>`),
+
   anni: svg(`
     <g transform="translate(40 18)"><rect width="200" height="116" rx="16" class="f-card s-line" stroke-width="2"/>
       <path d="M0 16a16 16 0 0 1 16-16h168a16 16 0 0 1 16 16v14H0z" class="f-acc"/><text x="100" y="21" text-anchor="middle" class="t-pill">2026</text>
@@ -132,10 +145,15 @@ function comandiHTML() {
 /* ======================= Introduzione ======================= */
 function introSteps() {
   const nuovo = !data;
+  // Nel browser: si consiglia di installarla, ma si può continuare (con i rischi spiegati).
+  const safariIOS = isIOS() && !isStandalone();
   const s = [
     { id: 'benvenuto', ill: ILL.benvenuto, t: 'Benvenuto in Quota', c: 1,
       b: `<p>Quota tiene d'occhio la tua previdenza complementare. Ogni mese inserisci due dati e vedi quanto vale la posizione, quanto rende e quanto ti ha dato in più rispetto al TFR lasciato in azienda.</p>
           <p>Ci vogliono due minuti al mese. Questa introduzione ne dura uno.</p>` },
+  ];
+  if (!isStandalone()) s.push({ id: 'installa', ill: ILL.installa, t: 'Salva Quota sul telefono', b: installaHTML(safariIOS) });
+  s.push(
     { id: 'privacy', ill: ILL.privacy, t: 'I tuoi dati restano qui', b: datiSalvatiHTML() + '<p class="small">Cancellare l\'icona dalla Home cancella anche i dati: ogni tanto esporta un backup da Impostazioni.</p>' },
     { id: 'fonti', ill: ILL.fonti, t: 'Ogni mese, due fonti',
       b: `<ol class="gsteps">
@@ -147,8 +165,7 @@ function introSteps() {
           <ul class="gl"><li class="dotli"><span class="cdot ok"></span><span><b>Verde</b>: il mese è completo.</span></li>
           <li class="dotli"><span class="cdot warn"></span><span><b>Arancione</b>: manca la busta paga o il dato del fondo.</span></li>
           <li class="dotli"><span class="cdot bad"></span><span><b>Rosso</b>: mancano entrambi.</span></li></ul>
-          <p class="small">Toccalo per andare all'inserimento: in cima trovi scritto cosa manca.</p>` }
-  ];
+          <p class="small">Toccalo per andare all'inserimento: in cima trovi scritto cosa manca.</p>` });
   const promemoria = { id: 'promemoria', ill: ILL.promemoria, t: 'Promemoria e privacy',
     b: `<ul class="gl"><li class="dotli"><span class="cdot acc"></span><span><b>Promemoria.</b> Le web app non mandano notifiche da sole: in Impostazioni › Promemoria trovi come farle arrivare con Comandi Rapidi.</span></li>
         <li class="dotli"><span class="cdot acc"></span><span><b>Modalità privata.</b> Il pulsante a occhio in Panoramica nasconde gli importi e mostra le percentuali, per far vedere l'app senza far vedere quanto hai.</span></li>
@@ -165,6 +182,30 @@ function introSteps() {
       b: '<p>Puoi rivedere questa introduzione quando vuoi. In Impostazioni trovi anche la guida completa, schermata per schermata.</p>' });
   }
   return s;
+}
+
+function installaHTML(safariIOS) {
+  const ios = `<ol class="gsteps">
+      <li>Tocca <b>Condividi</b>, il quadrato con la freccia in su. Nel Safari nuovo lo trovi anche nel menu <b>⋯</b> accanto all'indirizzo.</li>
+      <li>Scorri e scegli <b>Aggiungi alla schermata Home</b>.</li>
+      <li>Lascia attivo <b>Apri come app web</b> e tocca <b>Aggiungi</b>.</li>
+      <li>Apri Quota dall'icona sulla Home: l'introduzione riparte da lì.</li></ol>`;
+  const android = `<ol class="gsteps"><li>Tocca il menu <b>⋮</b> in alto a destra.</li><li>Scegli <b>Installa app</b> o <b>Aggiungi a schermata Home</b>, poi apri Quota dall'icona.</li></ol>`;
+  const rischi = safariIOS ? [
+    '<b>Dopo 7 giorni</b> in cui usi Safari senza aprire Quota, iOS può cancellare tutti i dati inseriti. È una regola di privacy di Safari: l\'app sulla Home non ce l\'ha.',
+    'Cancellando cronologia e dati dei siti di Safari si cancella anche Quota. In navigazione privata non resta niente.',
+    'Se la installi più avanti, i dati non passano da soli: l\'app sulla Home ha una memoria separata. Ti servirà esportare un backup e importarlo lì.',
+    'Niente schermo intero: resta la barra di Safari.'
+  ] : [
+    'Cancellando i dati di navigazione del browser si cancella anche Quota. In navigazione in incognito non resta niente.',
+    'Se il telefono ha poco spazio, il browser può liberarlo cancellando i dati dei siti.',
+    'Niente schermo intero: resta la barra del browser.'
+  ];
+  return `<p class="small" style="margin-top:0">Così si apre a tutto schermo come un'app, funziona anche senza internet e i dati sono al sicuro.</p>
+    ${safariIOS ? ios : `<h4 class="ih">iPhone, in Safari</h4>${ios}<h4 class="ih">Android, in Chrome</h4>${android}`}
+    <div class="risk"><div class="risk-t">Se continui nel browser</div>
+      <ul>${rischi.map((r) => `<li>${r}</li>`).join('')}</ul>
+      <div class="risk-ok">Chiudere la pagina o il browser invece non cancella niente.</div></div>`;
 }
 
 function introSetupHTML() {
@@ -239,6 +280,9 @@ function introHTML() {
   } else if (st.id === 'setup') {
     foot = `<div class="btnrow" style="margin-top:0"><button type="button" class="btn grey" data-act="intro-prev">Indietro</button>
       <button type="button" class="btn primary" data-act="intro-start">Inizia</button></div>`;
+  } else if (st.id === 'installa') {
+    foot = `<button type="button" class="btn primary big" data-act="intro-safari">La salvo sulla Home</button>
+      <button type="button" class="btn grey big" style="margin-top:10px" data-act="intro-next">Continua nel browser</button>`;
   } else if (last) {
     foot = '<button type="button" class="btn primary big" data-act="intro-skip">Inizia a usare Quota</button>';
   } else {
@@ -262,6 +306,7 @@ function guidaSezioni() {
   return [
     { id: 'primi', t: 'Primi passi', s: 'Installazione, impostazioni, il ritmo mensile', ill: ILL.benvenuto, b: `
       <h4>Installa l'app</h4><p>Apri l'indirizzo in <b>Safari</b>, tocca Condividi › <b>Aggiungi alla schermata Home</b> e da lì in poi usa sempre l'icona. I dati dell'app sulla Home e quelli di Safari sono separati.</p>
+      <p class="small">Puoi usarla anche in Safari, ma lì i dati sono meno al sicuro: se per 7 giorni usi Safari senza aprire Quota, iOS può cancellarli, e si cancellano anche pulendo cronologia e dati dei siti. L'app sulla Home non ha questi limiti. Chiudere la pagina non cancella niente.</p>
       <h4>Controlla le impostazioni</h4><p>In Impostazioni verifica comparto, aliquote (tuo contributo e azienda, in % dell'imponibile), giorno di paga e scaglione IRPEF. Ogni cambio di comparto o di aliquota vale da quel mese in poi: i mesi passati restano calcolati come all'epoca.</p>
       <h4>Il ritmo</h4><ol class="gsteps"><li>Quando arriva la busta paga, caricala in Inserisci.</li><li>Dopo la fine del mese, quando il fondo ha pubblicato il valore quota, copia i dati dall'area riservata.</li><li>Ogni tanto esporta un backup.</li></ol>
       <div class="btnrow"><button type="button" class="btn soft" data-act="intro-open">Rivedi l'introduzione</button></div>` },
@@ -384,6 +429,7 @@ document.addEventListener('click', (ev) => {
     case 'intro-prev': introGo(ui.intro.step - 1); break;
     case 'intro-dot': introGo(Number(v)); break;
     case 'intro-skip': introClose(); break;
+    case 'intro-safari': ui.intro = null; renderGuida(); break;
     case 'intro-start': introStart(); break;
     case 'intro-settings': introClose(); ui.tab = 'impostazioni'; render(); window.scrollTo(0, 0); break;
     case 'guida-open': if (!priv()) { ui.guida = { sec: null }; renderGuida(true); } break;
