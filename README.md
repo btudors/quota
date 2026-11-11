@@ -13,7 +13,7 @@ Web app personale per tenere sotto controllo la previdenza complementare da iPho
 
 ## Introduzione e guida
 - `guida.js` contiene l'introduzione a passi e la **guida completa** (Impostazioni › Aiuto › Guida completa, 13 sezioni). Si rivede da Impostazioni › Rivedi l'introduzione.
-- Le illustrazioni sono SVG disegnati nel codice (circa 12 KB per tutto il file, compresso ~5 KB): seguono chiaro/scuro, non contengono dati personali e non vanno rifatte a ogni modifica come gli screenshot.
+- Le illustrazioni sono SVG disegnati nel codice (tutto il file, testi compresi, circa 37 KB, 12 KB compresso): seguono chiaro/scuro, non contengono dati personali e non vanno rifatte a ogni modifica come gli screenshot.
 - La versione dell'introduzione vista è in `quota.pref.v1` › `intro`. Per farla rivedere a tutti dopo un cambio importante, aumentare `INTRO_VER` in `guida.js`. In modalità privata non parte da sola.
 - Quando cambia una schermata, aggiornare la sezione corrispondente in `guidaSezioni()`.
 
