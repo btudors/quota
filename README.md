@@ -9,7 +9,13 @@ Web app personale per tenere sotto controllo la previdenza complementare da iPho
 ## Come si usa
 1. Apri l'indirizzo in **Safari** sull'iPhone.
 2. Condividi › **Aggiungi alla schermata Home**.
-3. Al primo avvio: **Importa il tuo storico** (file `quota-backup` in formato JSON) oppure **Inizia da zero**.
+3. Al primo avvio parte l'**introduzione** (7 passi): cosa fa l'app, cosa salva e cosa no, come inserire i dati, configurazione iniziale (comparto, iscrizione, aliquote, giorno di paga), poi **Inizia** oppure **Importa un backup**.
+
+## Introduzione e guida
+- `guida.js` contiene l'introduzione a passi e la **guida completa** (Impostazioni › Aiuto › Guida completa, 13 sezioni). Si rivede da Impostazioni › Rivedi l'introduzione.
+- Le illustrazioni sono SVG disegnati nel codice (circa 12 KB per tutto il file, compresso ~5 KB): seguono chiaro/scuro, non contengono dati personali e non vanno rifatte a ogni modifica come gli screenshot.
+- La versione dell'introduzione vista è in `quota.pref.v1` › `intro`. Per farla rivedere a tutti dopo un cambio importante, aumentare `INTRO_VER` in `guida.js`. In modalità privata non parte da sola.
+- Quando cambia una schermata, aggiornare la sezione corrispondente in `guidaSezioni()`.
 
 ## Busta paga in PDF
 Pulsante **Inserisci** in Panoramica › **Leggi dalla busta paga (PDF)**: l'app legge mese, imponibile, contributo azienda, contributo volontario e TFR e compila il modulo; poi controlli e salvi. I contributi vengono confrontati con le aliquote impostate (Impostazioni › Aliquote): se la busta indica una percentuale diversa (es. azienda 2% invece di 1,5%), il pulsante **Aggiorna l'aliquota da …** registra il cambio da quel mese con un tocco. Il PDF non viene caricato né conservato. Funziona con i PDF con testo (non con scansioni/foto).
@@ -74,6 +80,7 @@ Ipotesi in `data/riferimenti.json` › `proiezioni`: rendimenti reali lordi per 
 | File | Cosa contiene |
 |---|---|
 | `index.html`, `app.css`, `app.js` | l'app |
+| `guida.js` | introduzione alla prima apertura e guida completa, con illustrazioni SVG |
 | `busta.js` | motore di lettura della busta paga in PDF, tutto nel telefono |
 | `busta-profili.js` | modelli di busta paga riconosciuti (voci, righe, colonne) |
 | `vendor/pdfjs/` | pdf.js 3.2.146 di Mozilla (Apache 2.0), caricato solo quando leggi un PDF |
