@@ -393,3 +393,5 @@ body.ovl { overflow: hidden; }
 .hc-l .dot { width: 8px; height: 8px; }
 .hc-v { font-size: 17px; font-weight: 700; color: #fff; margin-top: 3px; }
 .hc-p { font-size: 12px; color: var(--hero-2); margin-top: 1px; }
+
+.intro-text h4.ih { margin: 14px 0 6px; font-size: 15px; color: var(--text); }
