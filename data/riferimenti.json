@@ -67,5 +67,31 @@
       "Bilanciato": 0.0038,
       "Dinamico": 0.0027
     }
+  },
+  "proiezioni": {
+    "fonte": "Previdenza Cooperativa, metodologia delle proiezioni (ipotesi COVIP)",
+    "rendimentiLordi": {
+      "Sicuro": 0.02,
+      "Bilanciato": 0.026,
+      "Dinamico": 0.03
+    },
+    "quotaTasse": 0.066,
+    "crescitaContributi": 0.01,
+    "inflazione": 0.02,
+    "costoFissoAnnuo": 12,
+    "etaPensione": 67,
+    "coeffRendita67": 0.041,
+    "coeffRenditaPerAnno": 0.0015,
+    "tassaPrestazione": {
+      "base": 0.15,
+      "riduzioneAnnua": 0.003,
+      "dopoAnni": 15,
+      "minimo": 0.09
+    },
+    "scartoScenari": 0.01,
+    "link": {
+      "metodologia": "https://www.previdenzacooperativa.it/wp-content/uploads/2023/11/Metodologia-e-ipotesi-per-il-calcolo-delle-proiezioni-pensionistiche.pdf",
+      "covip": "https://www.covip.it"
+    }
   }
 }

@@ -282,3 +282,18 @@ h3.group { margin: 22px 20px 8px; font-size: 13px; font-weight: 600; letter-spac
 /* Titolo che si restringe sui telefoni stretti, per lasciare spazio al pulsante a stati */
 .title-row h1 { font-size: clamp(26px, 7.6vw, 34px); }
 .addbtn.ok, .addbtn.warn, .addbtn.bad { padding: 0 14px 0 11px; gap: 5px; }
+
+/* Torna indietro (pagina Inserisci, aperta dal pulsante della Panoramica) */
+.backbtn { display: inline-flex; align-items: center; gap: 2px; margin: 8px 0 0 10px; padding: 6px 8px; border: 0; background: transparent; color: var(--accent-text); font-size: 17px; font-weight: 500; }
+
+/* Pagina Pensione */
+.pbar { padding: 8px 0; border-bottom: 1px solid var(--sep); }
+.pbar:last-of-type { border-bottom: 0; }
+.pbar .row-top { font-size: 15px; }
+.pbar-track { height: 8px; background: var(--track); border-radius: 4px; margin-top: 6px; overflow: hidden; }
+.pbar-track > div { height: 8px; border-radius: 4px; }
+.pslider { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; margin-top: 14px; }
+.pslider label { font-size: 15px; color: var(--text-2); }
+.pslider output { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.pslider input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.sw { display: inline-block; width: 16px; vertical-align: middle; margin-right: 5px; }

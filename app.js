@@ -18,6 +18,29 @@ const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'lug
 const MS = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
 const INIZ = ['G', 'F', 'M', 'A', 'M', 'G', 'L', 'A', 'S', 'O', 'N', 'D'];
 
+/* Ipotesi delle proiezioni della pagina Pensione (aggiornabili da riferimenti.json).
+   Rendimenti reali attesi per comparto, al lordo di costi e tasse: Previdenza Cooperativa,
+   "Metodologia e ipotesi per il calcolo delle proiezioni pensionistiche" (azionario 4%, obbligazionario 2%).
+   quotaTasse: parte del rendimento netto dai costi che se ne va in tasse; calibrata in modo che il
+   Dinamico ricostruisca la previsione del prospetto 2025 (2,55% reale netto). */
+const PROIEZIONI_BUILTIN = {
+  fonte: 'Previdenza Cooperativa, metodologia delle proiezioni (ipotesi COVIP)',
+  rendimentiLordi: { Sicuro: 0.02, Bilanciato: 0.026, Dinamico: 0.03 },
+  quotaTasse: 0.066,
+  crescitaContributi: 0.01,
+  inflazione: 0.02,
+  costoFissoAnnuo: 12,
+  etaPensione: 67,
+  coeffRendita67: 0.041,
+  coeffRenditaPerAnno: 0.0015,
+  tassaPrestazione: { base: 0.15, riduzioneAnnua: 0.003, dopoAnni: 15, minimo: 0.09 },
+  scartoScenari: 0.01,
+  link: {
+    metodologia: 'https://www.previdenzacooperativa.it/wp-content/uploads/2023/11/Metodologia-e-ipotesi-per-il-calcolo-delle-proiezioni-pensionistiche.pdf',
+    covip: 'https://www.covip.it'
+  }
+};
+
 // Dati pubblici incorporati: l'app funziona anche se il download non riesce.
 const REF_BUILTIN = {
   formato: 'quota-riferimenti', versione: '2026-11-11', aggiornato: '2026-11-11',
@@ -30,7 +53,8 @@ const REF_BUILTIN = {
     '2026-07': 3.136358, '2026-08': 3.710988, '2026-09': 4.285617 } },
   irpef: { fonte: 'TUIR art. 11, come modificato dalla Legge 199/2025 (Bilancio 2026)', aliquote: { '2024': [0.23, 0.35, 0.43], '2026': [0.23, 0.33, 0.43] } },
   isc: { anno: 2025, fonte: 'COVIP, Relazione annuale 2025: ISC medio a 10 anni', fondiAperti: 0.0136, pip: 0.0217, fondiNegoziali: 0.0047 },
-  fondo: { nome: 'Previdenza Cooperativa', fonte: 'Previdenza Cooperativa, scheda costi: ISC a 10 anni', iscComparti: { Sicuro: 0.0067, Bilanciato: 0.0038, Dinamico: 0.0027 } }
+  fondo: { nome: 'Previdenza Cooperativa', fonte: 'Previdenza Cooperativa, scheda costi: ISC a 10 anni', iscComparti: { Sicuro: 0.0067, Bilanciato: 0.0038, Dinamico: 0.0027 } },
+  proiezioni: PROIEZIONI_BUILTIN
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -111,7 +135,7 @@ function paydayInfo(now = new Date()) {
 let data = null;          // dati personali
 let ref = REF_BUILTIN;    // dati pubblici ufficiali (incorporati o scaricati)
 let refUser = null;       // eventuali valori inseriti dall'utente
-const ui = { priv: false, tab: 'home', range: 'all', selIdx: null, year: null, insMonth: null, form: null, cmpOpen: false, sheet: null, guideOpen: false };
+const ui = { pens: { vol: null, g: null, ex: 0, sc: 0 }, priv: false, tab: 'home', range: 'all', selIdx: null, year: null, insMonth: null, form: null, cmpOpen: false, sheet: null, guideOpen: false };
 
 function loadJSON(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { toast('Impossibile salvare: memoria del browser non disponibile'); return false; } }
@@ -124,7 +148,8 @@ function emptyData() {
     formato: 'quota-backup', versione: 1, esportato: null,
     fondo: { nome: 'Previdenza Cooperativa', albo_covip: 170, adesione: 'collettiva', sito: LINK_FONDO, areaRiservata: LINK_AREA },
     impostazioni: { giornoPaga: 1, scaglioneIrpef: 2 },
-    comparti: [], aliquote: [], bustePaga: [], valorizzazioni: [], modifiche: {}
+    comparti: [], aliquote: [], bustePaga: [], valorizzazioni: [], modifiche: {},
+    pensione: { nascita: null }, prospetto: null
   };
 }
 
@@ -146,6 +171,15 @@ function normalize(d) {
     mese: v.mese, data: v.data || null, quote: Number(v.quote), valoreQuota: Number(v.valoreQuota), totaleVersato: Number(v.totaleVersato), comparto: v.comparto || null
   }));
   out.modifiche = d.modifiche || {};
+  // Pagina Pensione: mese di nascita (facoltativo) e dati del prospetto annuale del fondo (facoltativi).
+  if (d.pensione && /^\d{4}-\d{2}$/.test(d.pensione.nascita || '')) out.pensione.nascita = d.pensione.nascita;
+  const pr = d.prospetto;
+  if (pr && /^\d{4}-\d{2}-\d{2}$/.test(pr.dataPensione || '') && pr.posizioneFinale > 0 && pr.renditaAnnua > 0) {
+    out.prospetto = { anno: Number(pr.anno) || null, dataPensione: pr.dataPensione, posizioneFinale: Number(pr.posizioneFinale), renditaAnnua: Number(pr.renditaAnnua),
+      adesione: /^\d{4}-\d{2}-\d{2}$/.test(pr.adesione || '') ? pr.adesione : null, fonte: pr.fonte === 'pdf' ? 'pdf' : 'mano' };
+    const v = pr.verifica;
+    if (v && v.posizione > 0) out.prospetto.verifica = { posizione: Number(v.posizione), vol: Number(v.vol) || 0, az: Number(v.az) || 0, tfr: Number(v.tfr) || 0 };
+  }
   const gp = Math.round(Number(d.impostazioni && d.impostazioni.giornoPaga));
   out.impostazioni.giornoPaga = gp >= 1 && gp <= 31 ? gp : 1;
   const sc = Math.round(Number(d.impostazioni && d.impostazioni.scaglioneIrpef));
@@ -161,6 +195,7 @@ function effRef() {
   const r = JSON.parse(JSON.stringify(ref));
   if (!r.deducibilita) r.deducibilita = REF_BUILTIN.deducibilita;
   if (!r.irpef) r.irpef = REF_BUILTIN.irpef;
+  if (!r.proiezioni) r.proiezioni = REF_BUILTIN.proiezioni;
   if (refUser) {
     if (refUser.isc) Object.assign(r.isc, refUser.isc);
     if (refUser.iscComparti) Object.assign(r.fondo.iscComparti, refUser.iscComparti);
@@ -378,7 +413,7 @@ const ICON_EXT = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" st
 
 /* ======================= Viste ======================= */
 // In modalità privata si vedono solo Panoramica e Anni: niente inserimento, impostazioni o export.
-const PRIV_TABS = ['home', 'anni'];
+const PRIV_TABS = ['home', 'anni', 'pensione'];
 const ICON_EYE = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const ICON_EYE_OFF = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.1 3.9"/><path d="M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
 // Etichetta accanto al sopratitolo, così il titolo grande resta intero anche sugli schermi stretti.
@@ -397,12 +432,13 @@ function render() {
   if (priv()) ui.sheet = null;
   document.body.classList.toggle('privata', priv());
   const M = model();
-  const views = { home: viewHome, anni: viewAnni, inserisci: viewInserisci, impostazioni: viewImpostazioni };
+  const views = { home: viewHome, anni: viewAnni, inserisci: viewInserisci, pensione: viewPensione, impostazioni: viewImpostazioni };
   app.innerHTML = (views[ui.tab] || viewHome)(M);
   tab.innerHTML = tabbarHTML();
   renderSheet(M);
   if (ui.tab === 'home') bindChart(M);
   if (ui.tab === 'inserisci') refreshInsCalc();
+  if (ui.tab === 'pensione') refreshPens();
 }
 
 function tabbarHTML() {
@@ -412,7 +448,7 @@ function tabbarHTML() {
   return '<div class="inner">' +
     t('home', 'Panoramica', ic('<path d="M3 17l5-5 4 4 8-8"/><path d="M15 8h5v5"/>')) +
     t('anni', 'Anni', ic('<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>')) +
-    show('inserisci', t('inserisci', 'Inserisci', ic('<circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/>'))) +
+    t('pensione', 'Pensione', ic('<path d="M6.5 3h11M6.5 21h11"/><path d="M7.5 3c0 5 4.5 6 4.5 9s-4.5 4-4.5 9M16.5 3c0 5-4.5 6-4.5 9s4.5 4 4.5 9"/>')) +
     show('impostazioni', t('impostazioni', 'Impostazioni', ic('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'))) +
     '</div>';
 }
@@ -827,6 +863,7 @@ function viewAnni(M) {
     </section>`;
   }
 
+  html += verificaProspetto(M, Y);
   const periods = ['gen – mar', 'apr – giu', 'lug – set', 'ott – dic'];
   const pill = { ok: ['ok', 'Accreditato'], diff: ['bad', 'Da verificare'], attesa: ['warn', 'In attesa'], corso: ['idle', 'In corso'], futuro: ['idle', 'Da versare'], vuoto: ['idle', 'Nessun dato'] };
   html += `<h2 class="sec">Trimestri</h2><section class="card flush" aria-label="Trimestri">` + [1, 2, 3, 4].map((q) => {
@@ -886,7 +923,8 @@ function viewInserisci(M) {
   const prevSnap = M.P.filter((p) => p.i < idxOf(k)).pop();
   const ph = (val, d) => val != null ? num(val, d) : '';
   const lastB = data.bustePaga.filter((b) => b.mese < k).pop();
-  return `<div class="head"><div class="eyebrow">${f.existed ? 'Modifica' : 'Inserimento mensile'}</div><h1>${monthLabel(k)}</h1></div>
+  return `<button type="button" class="backbtn" data-act="tab" data-v="home"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Panoramica</button>
+    <div class="head" style="padding-top:4px"><div class="eyebrow">${f.existed ? 'Modifica' : 'Inserimento mensile'}</div><h1>${monthLabel(k)}</h1></div>
     ${insMancanti(M, S, k)}
     <section class="card flush" style="margin-top:0">
       <div class="field"><label for="i-mese">Mese</label><select id="i-mese" data-act="ins-select">${opts.map((o) => `<option value="${o}" ${o === k ? 'selected' : ''}>${monthLabel(o)}</option>`).join('')}</select></div>
@@ -903,6 +941,7 @@ function viewInserisci(M) {
       <div class="field"><label for="i-tfr">TFR del mese</label><input id="i-tfr" inputmode="decimal" autocomplete="off" data-f="tfr" value="${esc(f.tfr)}" placeholder="${lastB ? esc(num(lastB.tfr, 2)) : '0,00'}"></div>
       <div class="calc" id="calc-pay"></div>
     </section>
+    <div id="calc-aliq" style="margin:0 16px"></div>
     <div class="note"><span id="ph-pay"></span>I contributi si leggono dalla busta paga e si controllano con le aliquote in Impostazioni. Se li lasci vuoti, l'app li stima con le aliquote di quel mese.</div>
     <h3 class="group">2 · Dal sito del fondo</h3>
     <section class="card flush" style="margin-top:0">
@@ -972,6 +1011,27 @@ async function readBusta(file) {
   render(); window.scrollTo(0, 0);
 }
 
+/* Percentuale effettiva di un contributo sull'imponibile, se è "pulita" (a un decimale) e spiega
+   l'importo al centesimo; altrimenti null (arrotondamenti, conguagli, voci strane). */
+function aliquotaEffettiva(val, base) {
+  if (!(val >= 0) || !(base > 0)) return null;
+  const p = Math.round(val / base * 1000) / 1000; // es. 0,015
+  return Math.abs(Math.round(base * p * 100) / 100 - val) <= 0.02 ? p : null;
+}
+/* Proposta di cambio aliquota: quando un contributo letto corrisponde a una percentuale diversa da
+   quella impostata per il mese. Restituisce le nuove aliquote (frazioni) e un testo, oppure null. */
+function propostaAliquota(k, base, az, vol) {
+  if (!(base > 0)) return null;
+  const r = rateFor(k), eAz = aliquotaEffettiva(az, base), eVol = aliquotaEffettiva(vol, base);
+  const dAz = eAz != null && Math.abs(eAz - r.azienda) > 0.00005, dVol = eVol != null && Math.abs(eVol - r.volontario) > 0.00005;
+  if (!dAz && !dVol) return null;
+  const p = (x) => pctPlain(x, Math.round(x * 1000) % 10 ? 1 : 0);
+  const parti = [];
+  if (dAz) parti.push('azienda ' + p(eAz) + ' (impostato ' + p(r.azienda) + ')');
+  if (dVol) parti.push('il tuo contributo ' + p(eVol) + ' (impostato ' + p(r.volontario) + ')');
+  return { az: dAz ? eAz : r.azienda, vol: dVol ? eVol : r.volontario, testo: parti.join(' e ') };
+}
+
 /* Confronta i contributi letti con le aliquote impostate per quel mese; restituisce gli avvisi. */
 function controlloAliquote(k, base, az, vol) {
   const out = []; if (!(base > 0)) return out;
@@ -1004,6 +1064,12 @@ function refreshInsCalc() {
   if (pay) pay.innerHTML = `<div><span>Azienda ${st(azIn, azS, r.azienda)}</span><span class="num">${base > 0 || azIn >= 0 ? eur(az) : '—'}</span></div>
     <div><span>Volontario ${st(volIn, volS, r.volontario)}</span><span class="num">${base > 0 || volIn >= 0 ? eur(vol) : '—'}</span></div>
     <div class="strong"><span>Versato nel mese</span><span class="num">${tfr > 0 ? eur(vol + az + tfr) : '—'}</span></div>`;
+  const pa = $('#calc-aliq');
+  if (pa) {
+    const P = propostaAliquota(k, base, azIn, volIn);
+    pa.innerHTML = P ? `<div class="banner info ins-miss" style="margin:12px 0 0">La busta indica ${P.testo}, diverso da quanto impostato. Se il contratto è cambiato:
+      <div class="chips"><button type="button" class="chipbtn" data-act="aliq-auto" data-v="${esc(k + ';' + P.vol + ';' + P.az)}">Aggiorna l'aliquota da ${esc(monthLabel(k))}</button></div></div>` : '';
+  }
   const prevSnap = M.P.filter((p) => p.i < idxOf(k)).pop();
   const isCredit = m % 3 === 1;
   const qPrev = isCredit ? quarterInfo(M, m === 1 ? parseKey(k).y - 1 : parseKey(k).y, m === 1 ? 4 : (m - 1) / 3) : null;
@@ -1073,6 +1139,310 @@ function saveIns() {
   toast(monthLabel(k) + ' salvato');
   ui.tab = existed ? 'anni' : 'home'; if (existed) ui.year = parseKey(k).y;
   render(); window.scrollTo(0, 0);
+}
+
+/* ======================= Pensione ======================= */
+/* Previsione della posizione al pensionamento, a tre livelli:
+   0 · senza data di pensionamento: la pagina chiede il mese di nascita;
+   1 · con il mese di nascita: stima dell'app (pensione di vecchiaia a 67 anni, coefficiente di rendita generico);
+   2 · con il prospetto annuale del fondo: data, previsione ufficiale e coefficiente di rendita del fondo.
+   Tutto in euro di oggi (rendimenti reali, al netto dell'inflazione), con le ipotesi di effRef().proiezioni. */
+const compNome = (c) => { const x = String(c || '').toLowerCase(); return COMPARTI.find((n) => n.toLowerCase() === x) || 'Dinamico'; };
+function pensLivello() { return data.prospetto ? 2 : data.pensione && data.pensione.nascita ? 1 : 0; }
+// Indice (mesi, con frazione) della data di pensionamento.
+function pensIdx() {
+  const R = effRef().proiezioni;
+  if (data.prospetto) { const [y, m, d] = data.prospetto.dataPensione.split('-').map(Number); return y * 12 + m - 1 + (d - 1) / 31; }
+  if (data.pensione.nascita) return idxOf(data.pensione.nascita) + R.etaPensione * 12;
+  return null;
+}
+const pensLabel = (i) => { const m = Math.floor(i) % 12, y = Math.floor(Math.floor(i) / 12); return MESI[m] + ' ' + y; };
+
+function pensBase(M) {
+  if (!M.last || pensLivello() === 0) return null;
+  const ks = Object.keys(M.months).sort().filter((k) => idxOf(k) <= idxOf(todayKey())).slice(-12);
+  if (!ks.length) return null;
+  const Rf = effRef(), R = Rf.proiezioni, C = comparison(M);
+  let vol = 0, az = 0, tfr = 0, imp = 0, nImp = 0;
+  for (const k of ks) { const d = M.months[k]; vol += d.vol; az += d.az; tfr += d.tfr; if (d.base > 0) { imp += d.base; nImp++; } }
+  const sc = 12 / ks.length; vol *= sc; az *= sc; tfr *= sc;
+  imp = nImp ? imp * 12 / nImp : 0;
+  const comp = compNome(M.last.c);
+  const isc = (c) => Rf.fondo.iscComparti[c] != null ? Rf.fondo.iscComparti[c] : Rf.isc.fondiNegoziali;
+  const netto = (lordo, costo) => (lordo - costo) * (1 - R.quotaTasse);
+  const rC = {}; for (const c of COMPARTI) rC[c] = netto(R.rendimentiLordi[c], isc(c));
+  const tfrNom = (0.015 + 0.75 * R.inflazione) * (1 - Rf.tfr.imposta);
+  const own = C ? C.own : M.last.v;
+  const pIdx = pensIdx(), t0 = M.last.i + 1;
+  const nasc = data.pensione.nascita ? idxOf(data.pensione.nascita) : null;
+  const eta = nasc != null ? (pIdx - nasc) / 12 : R.etaPensione;
+  const coef = data.prospetto ? data.prospetto.renditaAnnua / data.prospetto.posizioneFinale : R.coeffRendita67 + R.coeffRenditaPerAnno * (eta - R.etaPensione);
+  const ades = data.prospetto && data.prospetto.adesione ? idxOf(data.prospetto.adesione.slice(0, 7)) : idxOf(M.firstKey);
+  return {
+    R, comp, rC, rCur: rC[comp], rAperti: netto(R.rendimentiLordi[comp], Rf.isc.fondiAperti), rPip: netto(R.rendimentiLordi[comp], Rf.isc.pip),
+    rTfr: (1 + tfrNom) / (1 + R.inflazione) - 1,
+    own, startAperti: C ? C.fpa : own, startPip: C ? C.pip : own, startTfr: C ? C.tfr : own,
+    versatoOggi: M.last.e + (C ? C.pend : 0),
+    vol, az, tfr, imp, volPct: imp > 0 ? vol / imp : 0,
+    pIdx, t0, eta, coef, ades, oggi: M.last.k
+  };
+}
+
+/* Simulazione anno per anno: contributi a metà anno, crescita reale dei contributi g.
+   tfrMode: TFR lasciato in azienda (rivalutazione di legge) e contributo volontario tenuto in busta, senza rendimento. */
+function pensSim(B, o) {
+  const n = Math.max(0, o.anni), yrs = Math.floor(n), fr = n - yrs;
+  let v = o.start, cash = 0, sv = 0, sa = 0, st = 0, cost = 0, fV = o.vol, fA = o.az, fT = o.tfr;
+  const pts = [v], fix = o.tfrMode ? 0 : B.R.costoFissoAnnuo;
+  const step = (f) => {
+    if (o.tfrMode) { v = v * Math.pow(1 + B.rTfr, f) + fT * f; cash += fV * f; }
+    else { const c = (fV + fA + fT - fix) * f; v = v * Math.pow(1 + o.r, f) + c * Math.pow(1 + o.r, f / 2); cost += fix * f; }
+    sv += fV * f; sa += (o.tfrMode ? 0 : fA) * f; st += fT * f;
+  };
+  for (let y = 0; y < yrs; y++) { step(1); fV *= 1 + o.g; fA *= 1 + o.g; fT *= 1 + o.g; pts.push(v + cash); }
+  if (fr > 0.001) { step(fr); pts.push(v + cash); }
+  return { v: v + cash, sv, sa, st, cost, pts, n };
+}
+
+/* Rendita lorda e netta stimata. Tassazione della prestazione: dal 15% al 9% con gli anni di adesione
+   oltre il 15°, applicata solo alla parte che viene da contributi e TFR (i rendimenti sono già tassati). */
+function pensRendita(B, cap, versTot, ex) {
+  const T = B.R.tassaPrestazione;
+  const anniAdes = Math.floor((B.pIdx + ex * 12 - B.ades) / 12);
+  const aliq = Math.max(T.minimo, T.base - T.riduzioneAnnua * Math.max(0, anniAdes - T.dopoAnni));
+  const coef = B.coef + B.R.coeffRenditaPerAnno * ex;
+  const quota = cap > 0 ? Math.min(1, versTot / cap) : 1;
+  const lordo = cap * coef, netto = lordo * (1 - aliq * quota);
+  return { lordo, netto, aliq, quota, coef, anniAdes, pctStip: B.imp > 0 ? lordo / B.imp : null, pctStipN: B.imp > 0 ? netto / B.imp : null };
+}
+
+/* Calcolo completo per un insieme di scelte (contributo %, crescita, anni in più/meno, scenario). */
+function pensRun(B, p) {
+  const ex = p.ex || 0, anni = (B.pIdx + ex * 12 - B.t0) / 12;
+  const g = p.g == null ? B.R.crescitaContributi : p.g / 100;
+  const vol = p.vol == null ? B.vol : B.imp * p.vol / 100, az = p.vol === 0 ? 0 : B.az;
+  const r = B.rCur + (p.sc || 0) * B.R.scartoScenari;
+  const s = pensSim(B, { start: B.own, r, vol, az, tfr: B.tfr, g, anni });
+  const vers = s.sv + s.sa + s.st;
+  const rend = pensRendita(B, s.v, B.versatoOggi + vers, ex);
+  return { s, vers, guadagno: s.v - B.own - vers + s.cost, rend, anni, g, ex };
+}
+
+/* I sei scenari a confronto, tutti con le scelte di oggi. */
+function pensScenari(B) {
+  const g = B.R.crescitaContributi, anni = (B.pIdx - B.t0) / 12;
+  const out = COMPARTI.map((c) => ({ id: c, nome: c, cur: c === B.comp, line: true, ...pensSim(B, { start: B.own, r: B.rC[c], vol: B.vol, az: B.az, tfr: B.tfr, g, anni }) }));
+  out.push({ id: 'aperti', nome: 'Fondo aperto (banche, SGR)', ...pensSim(B, { start: B.startAperti, r: B.rAperti, vol: B.vol, az: 0, tfr: B.tfr, g, anni }) });
+  out.push({ id: 'pip', nome: 'PIP (assicurazioni)', ...pensSim(B, { start: B.startPip, r: B.rPip, vol: B.vol, az: 0, tfr: B.tfr, g, anni }) });
+  out.push({ id: 'tfr', nome: 'TFR lasciato in azienda', line: true, ...pensSim(B, { start: B.startTfr, vol: B.vol, az: 0, tfr: B.tfr, g, anni, tfrMode: true }) });
+  return out;
+}
+
+/* "Sei in linea?": la posizione reale confrontata con quella che si sarebbe avuta crescendo esattamente
+   al rendimento previsto, con gli stessi versamenti nelle stesse date. */
+function pensInLinea(M, B) {
+  const P = M.P; if (P.length < 2) return null;
+  const run = (from) => { let E = P[from].v; for (let i = from + 1; i < P.length; i++) { const a = P[i - 1], b = P[i]; E = E * Math.pow(1 + B.rC[compNome(a.c)], (b.i - a.i) / 12) + (b.e - a.e); } return E; };
+  const y = parseKey(M.last.k).y; let f = -1;
+  for (let i = 0; i < P.length; i++) if (parseKey(P[i].k).y < y) f = i;
+  const mk = (E) => ({ exp: E, diff: M.last.v - E, pct: M.last.v / E - 1 });
+  return { all: mk(run(0)), anno: f >= 0 && f < P.length - 1 ? mk(run(f)) : null, y, dal: P[0].k };
+}
+
+function pensChart(S, P_, annoFine) {
+  const L = S.filter((s) => s.line), cur = L.find((s) => s.cur) || L[0];
+  const n = cur.n, mx = Math.max(...L.map((s) => Math.max(...s.pts))) * 1.04, W = 196, H = 230;
+  const X = (t) => 6 + Math.min(t, n) / (n || 1) * W, Y = (v) => H - v / mx * (H - 14);
+  const col = (s) => s.cur ? 'var(--accent)' : s.id === 'tfr' ? 'var(--alt)' : 'var(--tfr)';
+  const dash = (s) => s.cur ? '' : s.id === 'tfr' ? '1.5 3' : s.id === 'Sicuro' ? '2 3' : s.id === 'Bilanciato' ? '6 3' : '4 3';
+  let h = `<line x1="6" y1="${H}" x2="${6 + W}" y2="${H}" stroke="var(--sep)" stroke-width="1"/>`;
+  const ord = L.slice().sort((a, b) => b.v - a.v); let last = -99; const lab = [];
+  for (const s of ord) {
+    h += `<polyline fill="none" stroke="${col(s)}" stroke-width="${s.cur ? 2.6 : 1.4}" ${dash(s) ? `stroke-dasharray="${dash(s)}"` : ''} stroke-linecap="round" points="${s.pts.map((v, i) => X(i).toFixed(1) + ',' + Y(v).toFixed(1)).join(' ')}"/>`;
+    let y = Y(s.v); if (y - last < 34) y = last + 34; last = y;
+    h += `<circle cx="${6 + W}" cy="${Y(s.v).toFixed(1)}" r="3.2" fill="${col(s)}"/>`;
+    const val = P_ ? (s.cur ? 'la tua scelta' : pct(s.v / cur.v - 1, 0)) : eur(s.v, 0);
+    lab.push(`<text x="${W + 14}" y="${(y - 1).toFixed(1)}" font-size="14" font-weight="${s.cur ? 700 : 600}" fill="var(--text)">${val}</text><text x="${W + 14}" y="${(y + 14).toFixed(1)}" font-size="12" fill="var(--muted)">${s.id === 'tfr' ? 'TFR in azienda' : esc(s.nome)}${s.cur && !P_ ? ' · tuo' : ''}</text>`);
+  }
+  const y0 = parseKey(todayKey()).y;
+  h += lab.join('') + `<text x="6" y="${H + 16}" font-size="11" fill="var(--muted)">${y0}</text><text x="${6 + W}" y="${H + 16}" font-size="11" text-anchor="end" fill="var(--muted)">${annoFine}</text>`;
+  const maxY = Math.max(H + 22, last + 20);
+  return `<svg width="100%" viewBox="0 0 340 ${maxY.toFixed(0)}" role="img" aria-label="Crescita della posizione fino alla pensione: i tre comparti e il TFR lasciato in azienda">${h}</svg>`;
+}
+
+const LINK_METODO = () => effRef().proiezioni.link.metodologia;
+const PENS_DECLARATORIA = 'Le previsioni di questa pagina sono stime elaborate sul telefono a partire dai tuoi dati e dalle ipotesi pubblicate dal fondo e dalla COVIP. Non sono la proiezione ufficiale del fondo, non impegnano Previdenza Cooperativa né la COVIP e non sono una consulenza finanziaria né un consiglio d\'investimento o sulla scelta del comparto. Gli importi sono in euro di oggi (al netto di un\'inflazione ipotizzata del 2% l\'anno) e i rendimenti sono ipotesi: quelli reali possono essere più alti o più bassi, anche negativi in alcuni anni, e i rendimenti passati non sono indicativi di quelli futuri. Fondi aperti e PIP sono stimati con i costi medi pubblicati dalla COVIP a parità di investimento e senza contributo dell\'azienda; il TFR in azienda con la rivalutazione di legge (1,5% più il 75% dell\'inflazione, tassata al 17%). La rendita è vitalizia, immediata e senza reversibilità; il netto stima l\'imposta sulla prestazione con le regole di oggi (dal 15% al 9% in base agli anni di adesione, sulla sola parte che viene da contributi e TFR), che potrebbero cambiare. Per i dettagli fiscali fa fede il Documento sul regime fiscale del fondo.';
+
+function viewPensione(M) {
+  const P_ = priv(), L = pensLivello();
+  let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">Previsione</div>${privPill()}</div><div class="title-row"><h1>Pensione</h1><div class="head-actions">${privBtn()}</div></div></div>`;
+  const links = `<h2 class="sec">Approfondisci</h2><section class="card flush">
+      ${extLink(LINK_AREA, '<span>Simulatore ufficiale del fondo<br><span class="sub">Area riservata › proiezioni personalizzate</span></span>' + ICON_EXT, 'listlink')}
+      ${extLink(LINK_METODO(), '<span>Metodologia e ipotesi del fondo</span>' + ICON_EXT, 'listlink')}
+      ${extLink(effRef().proiezioni.link.covip, '<span>COVIP · guida alla previdenza complementare</span>' + ICON_EXT, 'listlink')}
+    </section>
+    <div class="note" style="margin-top:14px;line-height:1.5">${PENS_DECLARATORIA}</div>`;
+  if (!M.last || !Object.keys(M.months).length) {
+    return html + `<section class="card"><div class="title">Servono i primi dati</div><div class="sub">Per la previsione servono almeno una busta paga e un valore del fondo.</div></section>` + links;
+  }
+  if (L === 0) {
+    html += `<section class="card">
+      <div style="display:flex;gap:10px;align-items:center"><span class="icon-badge" style="background:var(--accent-soft);color:var(--accent-text)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3h11M6.5 21h11"/><path d="M7.5 3c0 5 4.5 6 4.5 9s-4.5 4-4.5 9M16.5 3c0 5-4.5 6-4.5 9s4.5 4 4.5 9"/></svg></span>
+      <div><div class="title">Quando andrai in pensione?</div><div class="sub">Con il tuo mese di nascita Quota calcola quanto potresti avere, partendo dalla tua posizione di oggi e dai versamenti delle buste paga.</div></div></div>
+      ${P_ ? '' : '<div class="btnrow"><button type="button" class="btn primary" data-act="sheet" data-v="pensdati">Aggiungi dati</button></div>'}
+      <div class="sub" style="margin-top:12px">Con il prospetto annuale del fondo (il PDF o tre numeri a mano) la previsione usa anche la data e la rendita ufficiali.</div>
+    </section>`;
+    return html + links;
+  }
+  const B = pensBase(M);
+  if (!B) return html + `<section class="card"><div class="sub">Dati insufficienti per la previsione.</div></section>` + links;
+  const X = pensRun(B, { vol: null, g: null, ex: 0, sc: 0 }), Rr = X.rend, pr = data.prospetto;
+  const quando = pensLabel(B.pIdx), eta = Math.round(B.eta);
+  const pq1 = (x) => x == null ? '—' : pctPlain(x, 0);
+
+  // Riepilogo
+  html += `<section class="hero" aria-label="Previsione al pensionamento">
+    <div class="lbl">Al pensionamento · ${quando}${eta ? ' · ' + eta + ' anni' : ''}</div>
+    <div class="big">${P_ ? pq1(Rr.pctStip) + ' <span style="font-size:17px;font-weight:600;color:var(--hero-2)">dello stipendio</span>' : eur(X.s.v, 0)}</div>
+    <div class="when">${P_ ? 'Rendita lorda in percentuale dello stipendio lordo di oggi' : 'Capitale stimato, in euro di oggi'}</div>
+    <div class="grid2" style="margin-top:14px">
+      <div><div class="kv-l" style="color:var(--hero-2)">Rendita lorda</div><div class="kv-v" style="color:#fff">${P_ ? pq1(Rr.pctStip) + ' stip.' : eur(Rr.lordo / 12, 0) + ' /mese'}</div><div class="kv-l" style="color:var(--hero-2)">${P_ ? '' : eur(Rr.lordo, 0) + ' l\'anno'}</div></div>
+      <div><div class="kv-l" style="color:var(--hero-2)">Rendita netta stimata</div><div class="kv-v" style="color:var(--mint)">${P_ ? pq1(Rr.pctStipN) + ' stip.' : eur(Rr.netto / 12, 0) + ' /mese'}</div><div class="kv-l" style="color:var(--hero-2)">${P_ ? 'imposta ' + pctPlain(Rr.aliq, 1) : eur(Rr.netto, 0) + ' l\'anno'}</div></div>
+    </div>
+    <div class="when" style="margin-top:8px">${P_ ? '' : 'Netto: imposta sulla prestazione del ' + pctPlain(Rr.aliq, 1) + ' (' + Rr.anniAdes + ' anni di adesione), solo su contributi e TFR. '}</div>
+    ${Rr.pctStip != null && !P_ ? `<div class="when" style="margin-top:10px">La rendita lorda vale il ${pq1(Rr.pctStip)} del tuo stipendio lordo di oggi (12 mensilità).</div>` : ''}
+  </section>`;
+  const yp = (x) => P_ ? pq(x / X.vers) : eur(x, 0);
+  html += `<section class="card" aria-label="Da dove arriva">
+    <div class="sub">Da oggi alla pensione · ${num(X.anni, 1)} anni</div>
+    <div class="yrow"><span>Versato da oggi</span><span class="num" style="font-weight:600">${P_ ? '100%' : eur(X.vers, 0)}</span></div>
+    <div class="yrow"><span><span class="dot" style="background:var(--vol)"></span>Tuo contributo</span><span class="num">${yp(X.s.sv)}</span></div>
+    <div class="yrow"><span><span class="dot" style="background:var(--az)"></span>Azienda</span><span class="num">${yp(X.s.sa)}</span></div>
+    <div class="yrow"><span><span class="dot" style="background:var(--tfr)"></span>TFR</span><span class="num">${yp(X.s.st)}</span></div>
+    <div class="yrow"><span>Guadagno del fondo</span><span class="num" style="color:var(--ok);font-weight:600">${P_ ? pct(X.guadagno / (B.own + X.vers), 0) + ' sul versato' : eurS(X.guadagno, 0)}</span></div>
+    <div class="yrow"><span>Posizione di oggi</span><span class="num">${P_ ? '—' : eur(B.own, 0)}</span></div>
+    ${pr ? `<div class="ynote ${Math.abs(X.s.v / pr.posizioneFinale - 1) < 0.05 ? 'ok' : 'warn'}">Previsione ufficiale del prospetto ${pr.anno || ''}: ${P_ ? 'la stima di Quota è ' + pct(X.s.v / pr.posizioneFinale - 1, 1) + ' rispetto al fondo.' : eur(pr.posizioneFinale, 0) + ', rendita lorda ' + eur(pr.renditaAnnua, 0) + ' l\'anno. Quota stima ' + eurS(X.s.v - pr.posizioneFinale, 0) + '.'} La differenza viene dai dati più recenti e dalle ipotesi di calcolo.</div>`
+      : `<div class="ynote warn">Rendita calcolata con un coefficiente generico. Aggiungi il prospetto annuale del fondo per la data e la rendita ufficiali.${P_ ? '' : ' <button type="button" class="chipbtn warn" style="margin-top:8px;background:var(--card)" data-act="sheet" data-v="pensdati">Aggiungi il prospetto</button>'}</div>`}
+  </section>`;
+
+  // Sei in linea?
+  const IL = pensInLinea(M, B);
+  if (IL) {
+    const riga = (lab, d) => { const avanti = d.diff >= 0; return `<div class="yrow"><span>${lab}</span><span class="num" style="color:var(${avanti ? '--ok' : '--warn'});font-weight:600">${P_ ? pct(d.pct, 1) : eurS(d.diff, 0)} ${avanti ? 'avanti' : 'indietro'}</span></div>`; };
+    html += `<h2 class="sec">Sei in linea?</h2><section class="card" aria-label="Sei in linea">
+      <div class="sub">La tua posizione reale confrontata con quella prevista dalle ipotesi del fondo, con gli stessi versamenti.</div>
+      ${IL.anno ? riga('Nel ' + IL.y, IL.anno) : ''}${riga('Dall\'inizio (' + monthLabel(IL.dal).toLowerCase() + ')', IL.all)}
+      <div class="sub" style="margin-top:8px">Avanti vuol dire che finora il fondo ha reso più delle ipotesi; i mercati però cambiano, in meglio e in peggio.</div>
+    </section>`;
+  }
+
+  // Grafico e classifica
+  const S = pensScenari(B), cur = S.find((s) => s.cur);
+  html += `<h2 class="sec">Come cresce</h2><section class="card" aria-label="Grafico">
+    <div class="sub">I tre comparti del fondo e il TFR lasciato in azienda, con i tuoi versamenti di oggi</div>
+    ${pensChart(S, P_, Math.floor(B.pIdx / 12))}
+    <div class="legend" style="margin-top:6px;font-size:12px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap"><span><span class="sw" style="border-top:2.6px solid var(--accent)"></span>Comparto ${esc(B.comp)} (attuale)</span><span><span class="sw" style="border-top:1.4px dashed var(--tfr)"></span>Altri comparti</span><span><span class="sw" style="border-top:1.4px dotted var(--alt)"></span>TFR in azienda</span></div>
+  </section>`;
+  const ord = S.slice().sort((a, b) => b.v - a.v), top = ord[0].v;
+  html += `<h2 class="sec">Al pensionamento</h2><section class="card" aria-label="Classifica">
+    ${ord.map((s) => { const d = s.v - cur.v; return `<div class="pbar"><div class="row-top"><span style="${s.cur ? 'font-weight:700' : ''}">${esc(s.nome)}${s.cur ? ' · la tua scelta' : ''}</span><span class="num" style="font-weight:600">${P_ ? (s.cur ? '—' : pct(s.v / cur.v - 1, 0)) : eur(s.v, 0)}</span></div>
+      <div class="pbar-track"><div style="width:${(s.v / top * 100).toFixed(1)}%;background:${s.cur ? 'var(--accent)' : s.id === 'tfr' || s.id === 'pip' || s.id === 'aperti' ? 'var(--alt)' : 'var(--tfr)'}"></div></div>
+      ${!s.cur && !P_ ? `<div class="sub" style="margin-top:3px;color:var(${d >= 0 ? '--ok' : '--bad'})">${eurS(d, 0)} rispetto alla tua scelta</div>` : ''}</div>`; }).join('')}
+    <div class="sub" style="margin-top:6px">Fondo aperto e PIP: costi medi COVIP a parità di investimento, senza il contributo dell'azienda. TFR in azienda: rivalutazione di legge; il tuo contributo resta in busta paga, senza rendimento.</div>
+  </section>
+  <section class="card banner warn" style="padding:14px 18px;border-radius:var(--radius)"><b>Rendimento e rischio vanno insieme.</b> I comparti con più azioni rendono di più in media ma possono perdere di più negli anni negativi, e conta soprattutto negli anni vicini alla pensione. Questo confronto non è un consiglio sulla scelta del comparto.</section>`;
+
+  // Calcolatore
+  const vDef = Math.round(B.volPct * 200) / 2, p = ui.pens;
+  html += `<h2 class="sec">E se…</h2><section class="card" aria-label="Calcolatore">
+    <div class="sub">Sposta i cursori: il confronto è con la previsione qui sopra.</div>
+    <div class="pslider"><label for="p-vol">Tuo contributo</label><input id="p-vol" type="range" min="0" max="10" step="0.5" value="${p.vol == null ? vDef : p.vol}" data-p="vol"><output id="p-vol-o"></output></div>
+    <div class="pslider"><label for="p-g">Crescita dello stipendio</label><input id="p-g" type="range" min="0" max="3" step="0.5" value="${p.g == null ? B.R.crescitaContributi * 100 : p.g}" data-p="g"><output id="p-g-o"></output></div>
+    <div class="pslider"><label for="p-ex">Pensione</label><input id="p-ex" type="range" min="-3" max="3" step="1" value="${p.ex}" data-p="ex"><output id="p-ex-o"></output></div>
+    <div class="seg" role="group" aria-label="Scenario di rendimento" style="margin:12px 0 0">${[[-1, 'Prudente'], [0, 'Come il fondo'], [1, 'Ottimista']].map(([v, l]) => `<button type="button" data-act="pens-sc" data-v="${v}" aria-pressed="${p.sc === v}">${l}</button>`).join('')}</div>
+    <div id="p-sc-o" class="sub" style="margin-top:6px"></div>
+    <div id="pens-calc" style="margin-top:10px"></div>
+    <button type="button" class="linkbtn" data-act="pens-reset" style="margin-top:6px">Ripristina i valori di oggi</button>
+  </section>`;
+  if (!P_) html += `<section class="card flush"><button type="button" class="listlink" data-act="sheet" data-v="pensdati"><span>Dati della previsione<br><span class="sub">${pr ? 'Prospetto ' + (pr.anno || '') + (pr.fonte === 'pdf' ? ' letto dal PDF' : ' inserito a mano') : 'Nascita ' + monthLabel(data.pensione.nascita).toLowerCase() + ' · aggiungi il prospetto'}</span></span><span class="sub">Modifica</span></button></section>`;
+  return html + links;
+}
+
+function refreshPens() {
+  const out = $('#pens-calc'); if (!out || !data) return;
+  const M = model(), B = pensBase(M); if (!B) return;
+  const P_ = priv(), p = ui.pens, base = pensRun(B, { vol: null, g: null, ex: 0, sc: 0 });
+  const X = pensRun(B, p);
+  const vDef = Math.round(B.volPct * 200) / 2, volShown = p.vol == null ? vDef : p.vol;
+  const set = (id, t) => { const e = $(id); if (e) e.textContent = t; };
+  set('#p-vol-o', num(volShown, volShown % 1 ? 1 : 0) + '%');
+  set('#p-g-o', num(X.g * 100, X.g * 1000 % 10 ? 1 : 0) + '%');
+  set('#p-ex-o', String(Math.floor((B.pIdx + p.ex * 12) / 12)));
+  set('#p-sc-o', 'Rendimento reale netto ' + pctPlain(B.rCur + p.sc * B.R.scartoScenari, 2) + ' l\'anno · comparto ' + B.comp + (p.vol === 0 ? ' · senza contributo tuo l\'azienda non versa' : ''));
+  const d = X.s.v - base.s.v, dn = X.rend.netto - base.rend.netto;
+  out.innerHTML = `<div class="grid2">
+      <div><div class="kv-l">Capitale</div><div class="kv-v">${P_ ? pct(X.s.v / base.s.v - 1, 0) : eur(X.s.v, 0)}</div><div class="kv-l" style="color:var(${d >= 0 ? '--ok' : '--bad'})">${P_ ? 'rispetto alla previsione' : eurS(d, 0)}</div></div>
+      <div><div class="kv-l">Rendita netta al mese</div><div class="kv-v">${P_ ? pctPlain(X.rend.pctStipN || 0, 0) + ' stip.' : eur(X.rend.netto / 12, 0)}</div><div class="kv-l" style="color:var(${dn >= 0 ? '--ok' : '--bad'})">${P_ ? '' : eurS(dn / 12, 0) + ' al mese'}</div></div>
+    </div>
+    ${P_ ? '' : `<div class="sub" style="margin-top:8px">Lorda ${eur(X.rend.lordo, 0)} l'anno · netta ${eur(X.rend.netto, 0)} l'anno (imposta ${pctPlain(X.rend.aliq, 1)}) · di tasca tua ${eur(X.s.sv, 0)} da oggi</div>`}`;
+}
+
+/* Prospetto annuale del fondo (PDF): estrae i dati della previsione e quelli per la verifica dell'anno.
+   Riconosce le etichette del "Prospetto delle prestazioni pensionistiche – fase di accumulo" (schema COVIP). */
+function parseProspetto(t) {
+  const T = String(t).replace(/\s+/g, ' ');
+  const n = (s) => s == null ? null : Number(s.replace(/\./g, '').replace(',', '.'));
+  const d = (s) => { const m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(s || ''); return m ? m[3] + '-' + m[2] + '-' + m[1] : null; };
+  const g = (re) => { const m = re.exec(T); return m ? m[1] : null; };
+  const anno = Number(g(/fase di accumulo\s*\(?\s*Anno (\d{4})/i)) || null;
+  const dataPensione = d(g(/pensionamento\s+di\s*(?:vecchiaia:?\s*)?(\d{2}\/\d{2}\/\d{4})/i) || g(/vecchiaia:?\s*(\d{2}\/\d{2}\/\d{4})/i));
+  const adesione = d(g(/adesione alla previdenza\s*(?:complementare:?\s*)?(\d{2}\/\d{2}\/\d{4})/i) || g(/complementare:?\s*(\d{2}\/\d{2}\/\d{4})/i));
+  const posFin = n(g(/([\d.]+,\d{2})\s*\(posizione finale\)/i));
+  const rendita = n(g(/([\d.]+,\d{2})\s*annui/i));
+  let verifica = null;
+  if (anno) {
+    const pos = n(g(new RegExp('Posizione individuale al 31/12/' + anno + '\\s+([\\d.]+,\\d{2})', 'i')));
+    const two = (lab) => { const m = new RegExp(lab + '\\s+([\\d.]+,\\d{2})\\s+([\\d.]+,\\d{2})', 'i').exec(T); return m ? n(m[2]) : null; };
+    if (pos) verifica = { posizione: pos, vol: two('contributi lavoratore') || 0, az: two('contributi datore di lavoro') || 0, tfr: two('\\bTFR') || 0 };
+  }
+  return { anno, dataPensione, adesione, posFin, rendita, verifica };
+}
+async function readProspetto(file) {
+  if (!ui.sheet) return;
+  ui.sheet.info = { stato: 'info', msg: 'Lettura del prospetto…' }; renderSheet();
+  let r;
+  try {
+    if (!window.QuotaBusta || !window.QuotaBusta.readText) throw new Error('Lettore PDF non disponibile: ricarica l\'app.');
+    r = parseProspetto(await window.QuotaBusta.readText(file, { askPassword: (retry) => prompt(retry ? 'Password errata. Riprova:' : 'Il PDF è protetto da password. Inseriscila (non viene salvata):') }));
+  } catch (e) { if (ui.sheet) { ui.sheet.info = { stato: 'bad', msg: e && e.message ? e.message : 'Impossibile leggere il PDF.' }; renderSheet(); } return; }
+  if (!ui.sheet) return;
+  const s = ui.sheet;
+  if (!r.dataPensione && !r.posFin && !r.rendita) { s.info = { stato: 'bad', msg: 'Non sembra il prospetto annuale del fondo: inserisci i dati a mano.' }; renderSheet(); return; }
+  if (r.anno) s.anno = String(r.anno);
+  if (r.dataPensione) s.dataPensione = r.dataPensione;
+  if (r.posFin) s.posFin = num(r.posFin, 2);
+  if (r.rendita) s.rendita = num(r.rendita, 2);
+  s.adesione = r.adesione; s.verifica = r.verifica; s.fonte = 'pdf';
+  const manca = [!r.dataPensione && 'data di pensionamento', !r.posFin && 'posizione finale', !r.rendita && 'rendita'].filter(Boolean);
+  s.info = { stato: manca.length ? 'warn' : 'ok', msg: 'Letti dal prospetto' + (r.anno ? ' ' + r.anno : '') + (manca.length ? '. Non trovati: ' + manca.join(', ') + ', inseriscili a mano.' : '. Controlla e premi Salva: il PDF non viene conservato.') };
+  renderSheet();
+}
+
+/* Verifica dell'anno con il prospetto: posizione al 31/12 e versato arrivato al fondo nell'anno. */
+function verificaProspetto(M, Y) {
+  const pr = data.prospetto; if (!pr || pr.anno !== Y || !pr.verifica) return '';
+  const P_ = priv(), V = pr.verifica, dec = M.P.find((p) => p.k === key(Y, 12)), decP = M.P.find((p) => p.k === key(Y - 1, 12));
+  const versP = V.vol + V.az + V.tfr;
+  const riga = (lab, app, uff) => {
+    if (app == null) return `<div class="yrow"><span>${lab}</span><span class="num" style="color:var(--muted)">valore di dicembre mancante</span></div>`;
+    const ok = Math.abs(app - uff) < 1;
+    return `<div class="yrow"><span>${lab}</span><span class="num">${P_ ? '' : eur(app) + ' · '}<span class="pill ${ok ? 'ok' : 'warn'}">${ok ? 'Torna' : (P_ ? 'Diverso' : 'Diff. ' + eurS(app - uff))}</span></span></div>`;
+  };
+  return `<h2 class="sec">Verifica con il prospetto ${Y}</h2><section class="card" aria-label="Verifica con il prospetto">
+    <div class="sub">Il prospetto conta i versamenti quando arrivano al fondo${P_ ? '' : ': ' + eur(versP) + ' nel ' + Y + ', posizione ' + eur(V.posizione)}.</div>
+    ${riga('Posizione al 31/12', dec ? dec.v : null, V.posizione)}
+    ${riga('Arrivato al fondo nell\'anno', dec && decP ? dec.e - decP.e : null, versP)}
+  </section>`;
 }
 
 /* ---------- Impostazioni ---------- */
@@ -1174,6 +1544,20 @@ function renderSheet() {
       <div class="field"><label for="s-vol">Volontario %</label><input id="s-vol" inputmode="decimal" data-s="vol" value="${esc(s.vol || '')}" placeholder="es. 1"></div>
       <div class="field"><label for="s-az">Azienda %</label><input id="s-az" inputmode="decimal" data-s="az" value="${esc(s.az || '')}" placeholder="es. 1,5"></div></section>
       <div class="note">Percentuali sull'imponibile, come in busta paga.</div>`;
+  } else if (s.type === 'pensdati') {
+    body = head('Dati della previsione') + `<h3 class="group">La tua data</h3><section class="card flush" style="margin-top:0">
+      <div class="field"><label for="s-nasc">Mese di nascita</label><input id="s-nasc" type="month" data-s="nascita" value="${esc(s.nascita || '')}"></div></section>
+      <div class="note">Serve per la data della pensione di vecchiaia (67 anni). Resta solo su questo telefono.</div>
+      <h3 class="group">Prospetto annuale del fondo</h3><section class="card flush" style="margin-top:0">
+      <label class="listlink" for="s-pdf" style="cursor:pointer"><span>Leggi il prospetto (PDF)</span>${ICON_DOC}</label>
+      <input id="s-pdf" class="sr" type="file" accept="application/pdf,.pdf" data-act="prosp-pdf">
+      ${s.info ? `<div class="banner ${s.info.stato}" role="status">${esc(s.info.msg)}</div>` : ''}
+      <div class="field"><label for="s-anno">Anno del prospetto</label><input id="s-anno" inputmode="numeric" data-s="anno" value="${esc(s.anno || '')}" placeholder="2025"></div>
+      <div class="field"><label for="s-dp">Data di pensionamento</label><input id="s-dp" type="date" data-s="dataPensione" value="${esc(s.dataPensione || '')}"></div>
+      <div class="field"><label for="s-pf">Posizione finale €</label><input id="s-pf" inputmode="decimal" data-s="posFin" value="${esc(s.posFin || '')}" placeholder="0,00"></div>
+      <div class="field"><label for="s-rd">Rendita annua €</label><input id="s-rd" inputmode="decimal" data-s="rendita" value="${esc(s.rendita || '')}" placeholder="0,00"></div></section>
+      <div class="note">Nella prima pagina del prospetto, "Quanto potresti ricevere quando andrai in pensione". Il PDF viene solo letto, mai salvato. Se lo lasci vuoto, la previsione usa la data di nascita e un coefficiente di rendita generico.</div>
+      ${data.prospetto ? '<section class="card flush"><button type="button" class="listlink" data-act="prosp-del" style="color:var(--bad)">Togli i dati del prospetto</button></section>' : ''}`;
   } else if (s.type === 'ref') {
     body = head('Costi di confronto') + `<div class="note" style="margin-top:12px">Usa l'ISC a <b>10 anni</b>. Lo trovi così:</div>
       <div class="details" style="margin:8px 20px 0"><div><b>Fondi aperti e PIP</b>: relazione annuale COVIP (esce a giugno), tabella "Indicatore sintetico dei costi", colonna 10 anni, valori medi.</div>
@@ -1194,6 +1578,10 @@ function openSheet(type) {
     const s = { type, fpa: num(R.isc.fondiAperti * 100, 2), pip: num(R.isc.pip * 100, 2) };
     for (const c in R.fondo.iscComparti) s['c-' + c] = num(R.fondo.iscComparti[c] * 100, 2);
     ui.sheet = s;
+  } else if (type === 'pensdati') {
+    const pr = data.prospetto;
+    ui.sheet = { type, nascita: data.pensione.nascita || '', anno: pr && pr.anno ? String(pr.anno) : '', dataPensione: pr ? pr.dataPensione : '',
+      posFin: pr ? num(pr.posizioneFinale, 2) : '', rendita: pr ? num(pr.renditaAnnua, 2) : '', adesione: pr ? pr.adesione : null, verifica: pr ? pr.verifica : null, fonte: pr ? pr.fonte : 'mano' };
   } else ui.sheet = { type, dal: todayKey(), nome: 'Dinamico' };
   renderSheet();
 }
@@ -1211,6 +1599,20 @@ function saveSheet() {
     if (!/^\d{4}-\d{2}$/.test(s.dal || '')) return sheetError('Scegli il mese.');
     if (!(vol >= 0 && vol <= 20) || !(az >= 0 && az <= 20)) return sheetError('Le percentuali devono essere tra 0 e 20.');
     data.aliquote = data.aliquote.filter((a) => a.dal !== s.dal).concat([{ dal: s.dal, volontario: vol / 100, azienda: az / 100 }]).sort((a, b) => a.dal.localeCompare(b.dal));
+  } else if (s.type === 'pensdati') {
+    const nas = String(s.nascita || '').trim();
+    if (nas && !/^\d{4}-\d{2}$/.test(nas)) return sheetError('Scegli il mese di nascita.');
+    if (nas && (nas < '1940-01' || nas > keyOf(idxOf(todayKey()) - 16 * 12))) return sheetError('Controlla il mese di nascita.');
+    const pf = parseIt(s.posFin), rd = parseIt(s.rendita), dp = String(s.dataPensione || '').trim(), anno = Number(s.anno) || null;
+    const qualcosa = dp || String(s.posFin || '').trim() || String(s.rendita || '').trim();
+    if (qualcosa) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dp) || dp <= todayKey()) return sheetError('Inserisci una data di pensionamento futura.');
+      if (!(pf > 0)) return sheetError('Inserisci la posizione finale prevista (es. 219.247,07).');
+      if (!(rd > 0) || rd > pf) return sheetError('Inserisci la rendita annua prevista (es. 9.004,15).');
+    }
+    if (!nas && !qualcosa) return sheetError('Inserisci il mese di nascita oppure i dati del prospetto.');
+    data.pensione = { nascita: nas || null };
+    data.prospetto = qualcosa ? { anno, dataPensione: dp, posizioneFinale: pf, renditaAnnua: rd, adesione: s.adesione || null, fonte: s.fonte === 'pdf' ? 'pdf' : 'mano', ...(s.verifica && s.fonte === 'pdf' ? { verifica: s.verifica } : {}) } : null;
   } else if (s.type === 'ref') {
     const ok = (v) => v >= 0.05 && v <= 5;
     const fpa = parseIt(s.fpa), pip = parseIt(s.pip);
@@ -1287,7 +1689,7 @@ async function exportCSV() {
 }
 
 /* ======================= Eventi ======================= */
-const PRIV_BLOCKED = ['ins-open', 'ins-month', 'ins-save', 'sheet', 'sheet-save', 'export', 'export-csv', 'wipe', 'ref-reset', 'del-comparto', 'del-aliquota', 'start-empty'];
+const PRIV_BLOCKED = ['prosp-del', 'aliq-auto', 'ins-open', 'ins-month', 'ins-save', 'sheet', 'sheet-save', 'export', 'export-csv', 'wipe', 'ref-reset', 'del-comparto', 'del-aliquota', 'start-empty'];
 let toastTimer = null;
 function toast(msg) {
   let t = $('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
@@ -1314,6 +1716,15 @@ document.addEventListener('click', (ev) => {
     case 'guide-toggle': ui.guideOpen = !ui.guideOpen; render(); break;
     case 'ins-month': ui.tab = 'inserisci'; ui.insMonth = v; ui.form = null; render(); window.scrollTo(0, 0); break;
     case 'ins-save': saveIns(); break;
+    case 'pens-sc': ui.pens.sc = Number(v); document.querySelectorAll('[data-act="pens-sc"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === String(v)))); refreshPens(); break;
+    case 'pens-reset': ui.pens = { vol: null, g: null, ex: 0, sc: 0 }; render(); break;
+    case 'prosp-del': if (confirm('Togliere i dati del prospetto? La previsione userà la data di nascita, se c\'è.')) { data.prospetto = null; persist(); ui.sheet = null; toast('Dati del prospetto tolti'); render(); } break;
+    case 'aliq-auto': {
+      const [dal, vol, az] = String(v).split(';'); const nv = Number(vol), na = Number(az);
+      if (!/^\d{4}-\d{2}$/.test(dal) || !(nv >= 0 && nv <= 0.2) || !(na >= 0 && na <= 0.2)) break;
+      data.aliquote = data.aliquote.filter((a) => a.dal !== dal).concat([{ dal, volontario: nv, azienda: na }]).sort((a, b) => a.dal.localeCompare(b.dal));
+      persist(); toast('Aliquota aggiornata da ' + monthLabel(dal)); refreshInsCalc(); break;
+    }
     case 'start-empty': data = normalize(emptyData()); data.comparti = [{ nome: 'Dinamico', dal: todayKey() }]; persist(); ui.tab = 'impostazioni'; render(); break;
     case 'export': exportData(); break;
     case 'export-csv': exportCSV(); break;
@@ -1331,11 +1742,13 @@ document.addEventListener('input', (ev) => {
   const t = ev.target;
   if (t.dataset.f && ui.form) { ui.form[t.dataset.f] = t.value; ui.form.err = null; refreshInsCalc(); }
   if (t.dataset.s && ui.sheet) { ui.sheet[t.dataset.s] = t.value; }
+  if (t.dataset.p && ui.tab === 'pensione') { ui.pens[t.dataset.p] = Number(t.value); refreshPens(); }
 });
 document.addEventListener('change', (ev) => {
   const t = ev.target;
   if (t.dataset.act === 'import' && t.files && t.files[0]) { importFile(t.files[0]); t.value = ''; }
   if (t.dataset.act === 'busta-pdf' && t.files && t.files[0]) { const file = t.files[0]; t.value = ''; readBusta(file); }
+  if (t.dataset.act === 'prosp-pdf' && t.files && t.files[0]) { const file = t.files[0]; t.value = ''; readProspetto(file); }
   if (t.dataset.act === 'ins-select') { ui.insMonth = t.value; ui.form = null; render(); }
   if (t.dataset.act === 'scaglione-irpef' && data) { data.impostazioni.scaglioneIrpef = Number(t.value); persist(); render(); }
   if (t.dataset.act === 'giorno-paga' && data) { data.impostazioni.giornoPaga = Number(t.value); persist(); ui.insMonth = null; ui.form = null; render(); }

@@ -196,7 +196,9 @@
   }
 
   /* askPassword(retry) -> Promise<string|null> */
-  async function readPdf(file, opts) {
+  /* Legge il testo di un PDF (max 8 pagine) come elementi posizionati, pagina per pagina.
+     Usato per la busta paga e per il prospetto annuale del fondo. Il file non viene conservato. */
+  async function readPages(file, opts, maxPages) {
     const o = opts || {};
     const lib = await loadLib(o.base || 'vendor/pdfjs/');
     const buf = new Uint8Array(await file.arrayBuffer());
@@ -213,17 +215,25 @@
     }
     try {
       const pages = [];
-      for (let p = 1; p <= Math.min(doc.numPages, 6); p++) {
+      for (let p = 1; p <= Math.min(doc.numPages, maxPages || 6); p++) {
         const page = await doc.getPage(p);
         const h = page.getViewport({ scale: 1 }).height;
         const tc = await page.getTextContent();
         pages.push(tc.items.filter((it) => it.str).map((it) => ({ s: it.str, x: it.transform[4], y: h - it.transform[5], w: it.width })));
       }
       if (!pages.some((p) => p.length)) throw new Error('Nel PDF non c\'è testo: sembra una scansione o una foto.');
-      return parse(pages);
+      return pages;
     } finally { doc.destroy(); }
   }
 
-  const api = { parse, readPdf, profili: profiliDisponibili };
+  async function readPdf(file, opts) { return parse(await readPages(file, opts, 6)); }
+
+  /* Testo semplice del PDF: righe ricostruite dalla posizione, pagine separate da a capo. */
+  async function readText(file, opts) {
+    const pages = await readPages(file, opts, 8);
+    return pages.map((items) => rows(words(items)).map((r) => r.t.map((w) => w.s).join(' ')).join('\n')).join('\n');
+  }
+
+  const api = { parse, readPdf, readText, profili: profiliDisponibili };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.QuotaBusta = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
