@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.8.1';
+const APP_VERSION = '1.9.0';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -43,7 +43,7 @@ const PROIEZIONI_BUILTIN = {
 
 // Dati pubblici incorporati: l'app funziona anche se il download non riesce.
 const REF_BUILTIN = {
-  formato: 'quota-riferimenti', versione: '2026-11-11', aggiornato: '2026-11-11',
+  formato: 'quota-riferimenti', versione: '2026-11-11.2', aggiornato: '2026-11-11',
   deducibilita: { fonte: 'D.Lgs. 252/2005 art. 8 c. 4, come modificato dalla Legge 199/2025 (Bilancio 2026)', limiti: { '2007': 5164.57, '2026': 5300 } },
   tfr: { fonte: 'ISTAT, indice FOI', imposta: 0.17, coefficienti: {
     '2024-12': 2.320017,
@@ -53,7 +53,9 @@ const REF_BUILTIN = {
     '2026-07': 3.136358, '2026-08': 3.710988, '2026-09': 4.285617 } },
   irpef: { fonte: 'TUIR art. 11, come modificato dalla Legge 199/2025 (Bilancio 2026)', aliquote: { '2024': [0.23, 0.35, 0.43], '2026': [0.23, 0.33, 0.43] } },
   isc: { anno: 2025, fonte: 'COVIP, Relazione annuale 2025: ISC medio a 10 anni', fondiAperti: 0.0136, pip: 0.0217, fondiNegoziali: 0.0047 },
-  fondo: { nome: 'Previdenza Cooperativa', fonte: 'Previdenza Cooperativa, scheda costi: ISC a 10 anni', iscComparti: { Sicuro: 0.0067, Bilanciato: 0.0038, Dinamico: 0.0027 } },
+  fondo: { nome: 'Previdenza Cooperativa', fonte: 'Previdenza Cooperativa, scheda costi: ISC a 10 anni', iscComparti: { Sicuro: 0.0067, Bilanciato: 0.0038, Dinamico: 0.0027 },
+    // Composizione, aree, rischio e rendimenti annui dei comparti (dati pubblici del fondo).
+    comparti: {"al": "2025-12-31", "fonte": "Previdenza Cooperativa, Nota informativa: schede Presentazione e Opzioni di investimento (in vigore dal 31/10/2026), dati al 31/12/2025", "link": "https://www.previdenzacooperativa.it/wp-content/uploads/2023/11/Scheda-Le-opzioni-di-investimento.pdf", "Sicuro": {"categoria": "Garantito", "livello": 1, "orizzonte": "Breve, fino a 5 anni dalla pensione", "garanzia": "Capitale versato restituito alla scadenza della convenzione", "avvio": "2006-10-01", "patrimonio": 508749563, "azioni": 3, "obbligazioni": 97, "governativi": 80.2, "corporate": 15.7, "liquidita": 1.2, "durationMesi": 26, "valuta": 2.7, "ter": 0.0063, "aree": {"Italia": 35.4, "Altri Paesi area euro": 51.2, "Altri Paesi UE": 7.2, "Stati Uniti": 4.1, "Giappone": 0.3, "Altri Paesi OCSE": 0.6, "Paesi non OCSE": 0.0}, "rendimenti": {"2025": [1.89, null]}, "nota": "Obiettivo: rendimento almeno pari all'inflazione italiana; volatilità tenuta sotto il 4% l'anno."}, "Bilanciato": {"categoria": "Obbligazionario misto", "livello": 2, "orizzonte": "Medio, tra 5 e 15 anni dalla pensione", "garanzia": null, "avvio": "2020-01-02", "patrimonio": 1673825673, "azioni": 31, "obbligazioni": 69, "governativi": 45.0, "corporate": 22.1, "liquidita": 0.9, "durationMesi": 71, "valuta": 27.6, "ter": 0.0024, "aree": {"Italia": 11.8, "Altri Paesi area euro": 28.8, "Altri Paesi UE": 1.5, "Stati Uniti": 38.5, "Giappone": 1.7, "Altri Paesi OCSE": 11.8, "Paesi non OCSE": 3.9}, "rendimenti": {"2020": [4.8, 4.0], "2021": [6.1, 5.6], "2022": [-9.6, -8.7], "2023": [7.3, 7.2], "2024": [8.3, 7.2], "2025": [3.32, 3.83]}, "nota": null}, "Dinamico": {"categoria": "Azionario", "livello": 3, "orizzonte": "Lungo, oltre 15 anni dalla pensione", "garanzia": null, "avvio": "2020-01-02", "patrimonio": 324525230, "azioni": 51, "obbligazioni": 49, "governativi": 32.4, "corporate": 13.5, "liquidita": 2.4, "durationMesi": 65, "valuta": 23.8, "ter": 0.0023, "aree": {"Italia": 11.9, "Altri Paesi area euro": 20.0, "Altri Paesi UE": 1.2, "Stati Uniti": 43.8, "Giappone": 2.4, "Altri Paesi OCSE": 11.4, "Paesi non OCSE": 5.6}, "rendimenti": {"2020": [5.9, 5.7], "2021": [10.0, 8.7], "2022": [-11.3, -11.2], "2023": [8.5, 9.5], "2024": [11.0, 9.5], "2025": [6.1, 5.9]}, "nota": null}} },
   proiezioni: PROIEZIONI_BUILTIN
 };
 
@@ -137,7 +139,7 @@ function paydayInfo(now = new Date()) {
 let data = null;          // dati personali
 let ref = REF_BUILTIN;    // dati pubblici ufficiali (incorporati o scaricati)
 let refUser = null;       // eventuali valori inseriti dall'utente
-const ui = { pens: { vol: null, g: null, ex: 0, sc: 0 }, priv: false, tab: 'home', range: 'all', selIdx: null, year: null, insMonth: null, form: null, cmpOpen: false, sheet: null, guideOpen: false, intro: null, guida: null, introVista: 0 };
+const ui = { pens: { vol: null, g: null, ex: 0, sc: 0 }, priv: false, tab: 'home', range: 'all', selIdx: null, year: null, insMonth: null, form: null, cmpOpen: false, cmpDet: false, sheet: null, guideOpen: false, intro: null, guida: null, introVista: 0 };
 
 function loadJSON(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { toast('Impossibile salvare: memoria del browser non disponibile'); return false; } }
@@ -205,6 +207,7 @@ function effRef() {
   if (!r.deducibilita) r.deducibilita = REF_BUILTIN.deducibilita;
   if (!r.irpef) r.irpef = REF_BUILTIN.irpef;
   if (!r.proiezioni) r.proiezioni = REF_BUILTIN.proiezioni;
+  if (!r.fondo.comparti) r.fondo.comparti = REF_BUILTIN.fondo.comparti;
   if (refUser) {
     if (refUser.isc) Object.assign(r.isc, refUser.isc);
     if (refUser.iscComparti) Object.assign(r.fondo.iscComparti, refUser.iscComparti);
@@ -594,11 +597,18 @@ function compHTML(M, inHero) {
   const sub = P_ ? 'Su ogni 100 € versati dall\'adesione' : 'Versati dall\'adesione: ' + eur(M.tv);
   const parts = [['TFR', M.ttfr, col.tfr], ['Azienda', M.taz, col.az], ['Tuo contributo', M.tvol, col.vol]];
   const bar = `<div class="stack" aria-hidden="true">${parts.map((p) => `<div style="width:${w(p[1])};background:${p[2]}"></div>`).join('')}</div>`;
-  if (inHero) {
-    return `<div class="hero-comp" aria-label="Da dove arrivano i versamenti">
-      <div class="top"><span class="lbl">Da dove arrivano i soldi</span><span class="when">${sub}</span></div>${bar}
-      <div class="hc-grid">${parts.map((p) => `<div><div class="hc-l"><span class="dot" style="background:${p[2]}"></span>${p[0]}</div>
-        <div class="hc-v num">${P_ ? Math.round(p[1] / M.tv * 100) + ' €' : eur(p[1], 0)}</div>${P_ ? '' : `<div class="hc-p num">${w(p[1])}</div>`}</div>`).join('')}</div>
+  if (inHero && M.last) {
+    // Valore di oggi = versato arrivato al fondo (diviso come nelle buste paga) + rendimento.
+    const L = M.last, base = L.e, k = base / M.tv, rend = L.v - base, tot = Math.max(L.v, base);
+    const q = [['TFR', M.ttfr * k, col.tfr], ['Azienda', M.taz * k, col.az], ['Tu', M.tvol * k, col.vol]];
+    if (rend > 0) q.push(['Rendimento', rend, '#5BE0A8']);
+    const pw = (x) => Math.round(x / tot * 100) + '%';
+    const bar4 = `<div class="stack" aria-hidden="true">${q.map((p) => `<div style="width:${(p[1] / tot * 100).toFixed(1)}%;background:${p[2]}"></div>`).join('')}</div>`;
+    return `<div class="hero-comp" aria-label="Com'è fatto il valore">
+      <div class="top"><span class="lbl">Com'è fatto il valore</span><span class="when">${P_ ? 'Su ogni 100 € di valore' : 'Al ' + dateLabel(L.k)}</span></div>${bar4}
+      <div class="hc-grid g4">${q.map((p) => `<div><div class="hc-l"><span class="dot" style="background:${p[2]}"></span>${p[0]}</div>
+        <div class="hc-v num">${P_ ? Math.round(p[1] / tot * 100) + ' €' : (p[0] === 'Rendimento' ? '+' : '') + eur(p[1], 0)}</div>${P_ ? '' : `<div class="hc-p num">${pw(p[1])}</div>`}</div>`).join('')}</div>
+      ${rend < 0 ? `<div class="hc-neg">Rendimento ${P_ ? pct(rend / base) : eurS(rend, 0)}: oggi il valore è sotto il versato.</div>` : ''}
     </div>`;
   }
   const v = (x) => P_ ? Math.round(x / M.tv * 100) + ' €' : `${eur(x)} <span style="color:var(--muted)">· ${w(x)}</span>`;
@@ -718,22 +728,79 @@ function viewHome(M) {
     </section>`;
   }
 
-  // Comparto (valore quota e costi sono dati pubblici del fondo: restano visibili)
-  if (M.last) {
-    const cur = M.last.c; const since = data.comparti.filter((c) => c.nome === cur).map((c) => c.dal).pop();
-    const firstOfCur = M.P.find((p) => p.c === cur && (!since || p.k >= since));
-    const isc = effRef().fondo.iscComparti[cur];
-    html += `<section class="card" aria-label="Comparto">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div class="title">Comparto ${esc(cur)}</div><div class="sub">${since ? 'da ' + MESI[parseKey(since).m - 1] + ' ' + parseKey(since).y : ''}</div></div>
-      <div class="grid3">
-        <div><div class="kv-l">Valore quota</div><div class="kv-v">${num(M.last.vq, 3)} €</div></div>
-        <div><div class="kv-l">${firstOfCur && firstOfCur !== M.last ? 'Da ' + MS[parseKey(firstOfCur.k).m - 1] + ' ' + String(parseKey(firstOfCur.k).y).slice(2) : 'Variazione'}</div><div class="kv-v ok-t">${firstOfCur ? pct(M.last.vq / firstOfCur.vq - 1) : '—'}</div></div>
-        <div><div class="kv-l">Costi (ISC 10 anni)</div><div class="kv-v">${isc != null ? pctPlain(isc) : '—'}</div></div>
-      </div>
-      ${data.comparti.length > 1 ? '<div class="sub" style="margin-top:12px">I valori quota di comparti diversi non si confrontano tra loro: il grafico segna il punto di cambio.</div>' : ''}
-      ${extLink(LINK_FONDO, '<span>Dettagli sul fondo</span>' + ICON_EXT, 'linkbtn', 'display:flex;align-items:center;justify-content:space-between;text-decoration:none')}
-    </section>`;
+  // Comparto: valore quota, costi, ripartizione, rischio e investimenti. Tutti dati pubblici del fondo: restano visibili anche in privata.
+  if (M.last) html += cardComparto(M);
+  return html;
+}
+
+/* Card del comparto in Panoramica. */
+function cardComparto(M) {
+  const R = effRef(), cur = M.last.c, since = data.comparti.filter((c) => c.nome === cur).map((c) => c.dal).pop();
+  const firstOfCur = M.P.find((p) => p.c === cur && (!since || p.k >= since));
+  const isc = R.fondo.iscComparti[cur], CC = R.fondo.comparti || {}, I = CC[cur];
+  const p1 = (x) => num(x, x >= 10 || Number.isInteger(x) ? 0 : 1) + '%';
+  let html = `<section class="card" aria-label="Comparto">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div class="title">Comparto ${esc(cur)}</div><div class="sub">${since ? 'da ' + MESI[parseKey(since).m - 1] + ' ' + parseKey(since).y : ''}</div></div>
+    ${I ? `<div class="sub">${esc(I.categoria)} · ${esc(I.orizzonte)}</div>` : ''}
+    <div class="grid3">
+      <div><div class="kv-l">Valore quota</div><div class="kv-v">${num(M.last.vq, 3)} €</div></div>
+      <div><div class="kv-l">${firstOfCur && firstOfCur !== M.last ? 'Da ' + MS[parseKey(firstOfCur.k).m - 1] + ' ' + String(parseKey(firstOfCur.k).y).slice(2) : 'Variazione'}</div><div class="kv-v ok-t">${firstOfCur ? pct(M.last.vq / firstOfCur.vq - 1) : '—'}</div></div>
+      <div><div class="kv-l">Costi (ISC 10 anni)</div><div class="kv-v">${isc != null ? pctPlain(isc) : '—'}</div></div>
+    </div>`;
+  if (I) {
+    const al = isoLabel(CC.al);
+    // Ripartizione azioni / obbligazioni
+    html += `<div class="cp-sec"><div class="cp-h"><span>Ripartizione</span><span class="cp-d">al ${al}</span></div>
+      <div class="stack cp-bar" aria-hidden="true"><div style="width:${I.azioni}%;background:var(--accent)"></div><div style="width:${I.obbligazioni}%;background:var(--alt)"></div></div>
+      <div class="cp-leg"><span><span class="dot" style="background:var(--accent)"></span>Azioni <b class="num">${I.azioni}%</b></span><span><span class="dot" style="background:var(--alt)"></span>Obbligazioni <b class="num">${I.obbligazioni}%</b></span></div></div>`;
+    // Rischio: posizione tra i tre comparti del fondo
+    const anni = Object.keys(I.rendimenti).sort(), vals = anni.map((y) => I.rendimenti[y][0]);
+    const worst = anni.length > 1 ? anni[vals.indexOf(Math.min(...vals))] : null, best = anni.length > 1 ? anni[vals.indexOf(Math.max(...vals))] : null;
+    html += `<div class="cp-sec"><div class="cp-h"><span>Rischio</span></div>
+      <div class="risk3" role="img" aria-label="Rischio ${['basso', 'medio', 'più alto'][I.livello - 1]} tra i comparti del fondo">${COMPARTI.map((n, i) => `<div class="${i + 1 === I.livello ? 'on' : i + 1 < I.livello ? 'fill' : ''}"><span></span>${n}</div>`).join('')}</div>
+      <div class="sub" style="margin-top:8px">${I.garanzia ? esc(I.garanzia) + '. ' : 'Nessuna garanzia: il valore può anche scendere. '}${worst ? `Anno peggiore <b class="bad-t num">${pct(I.rendimenti[worst][0] / 100)}</b> (${worst}), migliore <b class="ok-t num">${pct(I.rendimenti[best][0] / 100)}</b> (${best}).` : ''}</div></div>`;
+    html += `<button type="button" class="linkbtn" data-act="cmp-det" aria-expanded="${!!ui.cmpDet}">${ui.cmpDet ? 'Nascondi investimenti e rendimenti' : 'Investimenti e rendimenti'}</button>`;
+    if (ui.cmpDet) {
+      const A = I.aree, g = [['Stati Uniti', A['Stati Uniti']], ['Italia', A['Italia']], ['Resto d\'Europa', A['Altri Paesi area euro'] + A['Altri Paesi UE']],
+        ['Altri Paesi avanzati', A['Giappone'] + A['Altri Paesi OCSE']], ['Paesi emergenti', A['Paesi non OCSE']]].sort((x, y) => y[1] - x[1]);
+      const gmax = Math.max(...g.map((x) => x[1]));
+      const anniTxt = (m) => { const y = Math.floor(m / 12), r = m % 12; return y + (r >= 6 ? ' anni e mezzo' : y === 1 ? ' anno' : ' anni'); };
+      html += `<div class="cp-sec"><div class="cp-h"><span>Dove investe</span><span class="cp-d">azioni e obbligazioni</span></div>
+        <div class="geo">${g.map((x) => `<div><span>${x[0]}</span><div class="geo-t"><div style="width:${(x[1] / gmax * 100).toFixed(1)}%"></div></div><b class="num">${p1(x[1])}</b></div>`).join('')}</div>
+        <div class="grid2 cp-kv">
+          <div><div class="kv-l">Titoli di Stato</div><div class="kv-v">${p1(I.governativi)}</div></div>
+          <div><div class="kv-l">Obbligazioni aziendali</div><div class="kv-v">${p1(I.corporate)}</div></div>
+          <div><div class="kv-l">In valute non euro</div><div class="kv-v">${p1(I.valuta)}</div></div>
+          <div><div class="kv-l">Durata media obbligazioni</div><div class="kv-v">${anniTxt(I.durationMesi)}</div></div>
+        </div></div>`;
+      if (anni.length > 1) {
+        const mx = Math.max(...anni.map((y) => Math.max(Math.abs(I.rendimenti[y][0]), Math.abs(I.rendimenti[y][1] || 0))));
+        const W = 300, H = 150, mid = 64, sc = 52 / mx, bw = W / anni.length;
+        const bars = anni.map((y, i) => {
+          const [r, bmk] = I.rendimenti[y], x = i * bw + bw * 0.22, w = bw * 0.56, h = Math.abs(r) * sc;
+          return `<rect x="${x.toFixed(1)}" y="${(r >= 0 ? mid - h : mid).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(h, 1).toFixed(1)}" rx="3" fill="${r >= 0 ? 'var(--accent)' : 'var(--bad)'}"/>`
+            + (bmk != null ? `<line x1="${(x - 3).toFixed(1)}" x2="${(x + w + 3).toFixed(1)}" y1="${(mid - bmk * sc).toFixed(1)}" y2="${(mid - bmk * sc).toFixed(1)}" stroke="var(--text)" stroke-width="2" stroke-linecap="round"/>` : '')
+            + `<text x="${(x + w / 2).toFixed(1)}" y="${(r >= 0 ? mid - h - 5 : mid + h + 13).toFixed(1)}" text-anchor="middle" class="yr-v">${num(r, 1)}</text>`
+            + `<text x="${(x + w / 2).toFixed(1)}" y="${H - 2}" text-anchor="middle" class="yr-l">${y}</text>`;
+        }).join('');
+        html += `<div class="cp-sec"><div class="cp-h"><span>Rendimento netto anno per anno</span><span class="cp-d">%</span></div>
+          <svg class="yrs" viewBox="0 0 ${W} ${H}" role="img" aria-label="Rendimenti annui del comparto: ${anni.map((y) => y + ' ' + num(I.rendimenti[y][0], 1) + '%').join(', ')}"><line x1="0" x2="${W}" y1="${mid}" y2="${mid}" stroke="var(--sep)"/>${bars}</svg>
+          <div class="cp-leg"><span><span class="dot" style="background:var(--accent)"></span>Comparto</span><span><span class="dot" style="height:3px;border-radius:2px;background:var(--text)"></span>Benchmark</span></div></div>`;
+      } else {
+        const y = anni[0];
+        html += `<div class="cp-sec"><div class="cp-h"><span>Rendimento netto ${y}</span></div><div class="kv-v ok-t" style="font-size:20px">${pct(I.rendimenti[y][0] / 100)}</div></div>`;
+      }
+      html += `<div class="details" style="margin-top:12px">
+        ${I.nota ? `<div>${esc(I.nota)}</div>` : ''}
+        <div>Costi effettivi del comparto nel 2025 (TER): ${pctPlain(I.ter)} del patrimonio. Patrimonio del comparto: ${num(I.patrimonio / 1e6, 0)} milioni di euro.</div>
+        <div style="color:var(--muted)">Dati pubblici del fondo, uguali per tutti gli iscritti al comparto: ${esc(CC.fonte)}. I rendimenti passati non sono indicativi di quelli futuri.</div>
+        ${extLink(CC.link, '<span>Scheda ufficiale del fondo</span>' + ICON_EXT, '', 'display:inline-flex;align-items:center;gap:6px;font-weight:600;text-decoration:none')}
+      </div>`;
+    }
   }
+  html += `${data.comparti.length > 1 ? '<div class="sub" style="margin-top:12px">I valori quota di comparti diversi non si confrontano tra loro: il grafico segna il punto di cambio.</div>' : ''}
+    ${extLink(LINK_FONDO, '<span>Dettagli sul fondo</span>' + ICON_EXT, 'linkbtn', 'display:flex;align-items:center;justify-content:space-between;text-decoration:none')}
+  </section>`;
   return html;
 }
 
@@ -1857,6 +1924,7 @@ document.addEventListener('click', (ev) => {
     case 'year': ui.year = Number(v); render(); break;
     case 'go-anni': ui.tab = 'anni'; ui.year = Number(v); render(); window.scrollTo(0, 0); break;
     case 'cmp-toggle': ui.cmpOpen = !ui.cmpOpen; render(); break;
+    case 'cmp-det': ui.cmpDet = !ui.cmpDet; render(); break;
     case 'guide-toggle': ui.guideOpen = !ui.guideOpen; render(); break;
     case 'ins-month': ui.tab = 'inserisci'; ui.insMonth = v; ui.form = null; render(); window.scrollTo(0, 0); break;
     case 'ins-save': saveIns(); break;
