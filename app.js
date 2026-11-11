@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.7.2';
+const APP_VERSION = '1.8.0';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -137,13 +137,13 @@ function paydayInfo(now = new Date()) {
 let data = null;          // dati personali
 let ref = REF_BUILTIN;    // dati pubblici ufficiali (incorporati o scaricati)
 let refUser = null;       // eventuali valori inseriti dall'utente
-const ui = { pens: { vol: null, g: null, ex: 0, sc: 0 }, priv: false, tab: 'home', range: 'all', selIdx: null, year: null, insMonth: null, form: null, cmpOpen: false, sheet: null, guideOpen: false };
+const ui = { pens: { vol: null, g: null, ex: 0, sc: 0 }, priv: false, tab: 'home', range: 'all', selIdx: null, year: null, insMonth: null, form: null, cmpOpen: false, sheet: null, guideOpen: false, intro: null, guida: null, introVista: 0 };
 
 function loadJSON(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { toast('Impossibile salvare: memoria del browser non disponibile'); return false; } }
 function persist() { if (data) saveJSON(STORE_KEY, data); }
-// Preferenze dell'app (non fanno parte del backup): la modalità privata resta com'era all'ultima chiusura.
-function savePref() { saveJSON(PREF_KEY, { privata: ui.priv }); }
+// Preferenze dell'app (non fanno parte del backup): la modalità privata resta com'era all'ultima chiusura; intro = versione dell'introduzione già vista.
+function savePref() { saveJSON(PREF_KEY, { privata: ui.priv, intro: ui.introVista }); }
 
 function emptyData() {
   return {
@@ -454,7 +454,7 @@ function privBtn() {
 }
 function render() {
   const app = $('#app'), tab = $('#tabbar');
-  if (!data) { tab.hidden = true; app.innerHTML = viewWelcome(); return; }
+  if (!data) { tab.hidden = true; app.innerHTML = viewWelcome(); renderGuida(); return; }
   tab.hidden = false;
   if (priv() && !PRIV_TABS.includes(ui.tab)) ui.tab = 'home';
   if (priv()) ui.sheet = null;
@@ -467,6 +467,7 @@ function render() {
   if (ui.tab === 'home') bindChart(M);
   if (ui.tab === 'inserisci') refreshInsCalc();
   if (ui.tab === 'pensione') refreshPens();
+  renderGuida();
 }
 
 function tabbarHTML() {
@@ -489,6 +490,7 @@ function viewWelcome() {
     <label class="btn primary" for="imp-file">Importa il tuo storico</label>
     <input id="imp-file" class="sr" type="file" accept=".json,application/json" data-act="import">
     <button type="button" class="btn grey" data-act="start-empty">Inizia da zero</button>
+    <button type="button" class="btn soft" data-act="intro-open">Guarda l'introduzione</button>
     <p style="font-size:13px; margin-top:24px">Per installarla: in Safari tocca Condividi › Aggiungi alla schermata Home.</p>
     <p style="font-size:12px; margin-top:16px">${DISCLAIMER}</p>
   </div>`;
@@ -582,6 +584,28 @@ function addBtnHTML(M) {
     : `<button type="button" class="addbtn ${S.livello}" data-act="ins-open" aria-label="${S.livello === 'bad' ? 'Mancano i dati del mese, inserisci' : 'Mancano alcuni dati, inserisci'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Inserisci</span></button>`;
 }
 
+/* Da dove arrivano i soldi: dentro la scheda del valore (scura) oppure come scheda a sé se il grafico non c'è ancora. */
+function compHTML(M, inHero) {
+  if (!(M.tv > 0)) return '';
+  const P_ = priv(), w = (x) => Math.round(x / M.tv * 100) + '%';
+  const col = inHero ? { tfr: '#5B8EE6', az: '#F5A524', vol: '#A9D0FA' } : { tfr: 'var(--tfr)', az: 'var(--az)', vol: 'var(--vol)' };
+  const sub = P_ ? 'Su ogni 100 € versati dall\'adesione' : 'Versati dall\'adesione: ' + eur(M.tv);
+  const parts = [['TFR', M.ttfr, col.tfr], ['Azienda', M.taz, col.az], ['Tuo contributo', M.tvol, col.vol]];
+  const bar = `<div class="stack" aria-hidden="true">${parts.map((p) => `<div style="width:${w(p[1])};background:${p[2]}"></div>`).join('')}</div>`;
+  if (inHero) {
+    return `<div class="hero-comp" aria-label="Da dove arrivano i versamenti">
+      <div class="top"><span class="lbl">Da dove arrivano i soldi</span><span class="when">${sub}</span></div>${bar}
+      <div class="hc-grid">${parts.map((p) => `<div><div class="hc-l"><span class="dot" style="background:${p[2]}"></span>${p[0]}</div>
+        <div class="hc-v num">${P_ ? Math.round(p[1] / M.tv * 100) + ' €' : eur(p[1], 0)}</div>${P_ ? '' : `<div class="hc-p num">${w(p[1])}</div>`}</div>`).join('')}</div>
+    </div>`;
+  }
+  const v = (x) => P_ ? Math.round(x / M.tv * 100) + ' €' : `${eur(x)} <span style="color:var(--muted)">· ${w(x)}</span>`;
+  return `<section class="card" aria-label="Da dove arrivano i versamenti">
+    <div class="title">Da dove arrivano i soldi</div><div class="sub">${sub}</div>${bar}
+    <div class="legend-list">${parts.map((p) => `<div><span class="k"><span class="dot" style="width:10px;height:10px;background:${p[2]}"></span>${p[0] === 'Azienda' ? 'Contributo azienda' : p[0] === 'Tuo contributo' ? 'Contributo volontario' : p[0]}</span><span class="num">${v(p[1])}</span></div>`).join('')}</div>
+  </section>`;
+}
+
 function viewHome(M) {
   const P_ = priv();
   let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">${esc(data.fondo.nome)}${M.last ? ' · ' + esc(M.last.c) : ''}</div>${privPill()}</div>
@@ -622,9 +646,11 @@ function viewHome(M) {
         ${G.hasGap ? '<span><span class="sw" style="border-top:2px dotted #5BE0A8"></span>Mese non registrato</span>' : ''}
       </div>
       <div class="hint" id="h-hint">${t.hint}</div>
+      ${compHTML(M, true)}
     </section>`;
   } else {
     html += `<section class="card"><div class="title">Ancora pochi dati</div><div class="sub">Il grafico compare dopo almeno due valori del fondo. Inserisci quote e valore quota dal sito del fondo.</div></section>`;
+    html += compHTML(M, false);
   }
 
   const C = comparison(M);
@@ -687,21 +713,6 @@ function viewHome(M) {
         <div><b>TFR in azienda</b>: rivalutazione di legge (1,5% + 75% dell'inflazione ISTAT), tassata al 17%. Il contributo volontario resta in busta paga, senza rendimento e senza deduzione fiscale.</div>
         <div style="color:var(--muted)">Non include la tassazione finale, più bassa nel fondo pensione (dal 15% al 9%). È una stima, non un consiglio d'investimento. Dati pubblici aggiornati al ${esc(C.R.aggiornato || C.R.versione)}.</div>
       </div>` : ''}
-    </section>`;
-  }
-
-  if (M.tv > 0) {
-    // Composizione
-    const w = (x) => Math.round(x / M.tv * 100) + '%';
-    const v = (x) => P_ ? Math.round(x / M.tv * 100) + ' €' : `${eur(x)} <span style="color:var(--muted)">· ${w(x)}</span>`;
-    html += `<section class="card" aria-label="Da dove arrivano i versamenti">
-      <div class="title">Da dove arrivano i soldi</div><div class="sub">${P_ ? 'Su ogni 100 € versati dall\'adesione' : 'Totale versato dall\'adesione: ' + eur(M.tv)}</div>
-      <div class="stack"><div style="width:${w(M.ttfr)};background:var(--tfr)"></div><div style="width:${w(M.taz)};background:var(--az)"></div><div style="width:${w(M.tvol)};background:var(--vol)"></div></div>
-      <div class="legend-list">
-        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--tfr)"></span>TFR</span><span class="num">${v(M.ttfr)}</span></div>
-        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--az)"></span>Contributo azienda</span><span class="num">${v(M.taz)}</span></div>
-        <div><span class="k"><span class="dot" style="width:10px;height:10px;background:var(--vol)"></span>Contributo volontario</span><span class="num">${v(M.tvol)}</span></div>
-      </div>
     </section>`;
   }
 
@@ -1557,6 +1568,12 @@ function viewImpostazioni(M) {
   const lastCoefKey = Object.keys(R.tfr.coefficienti).sort().pop();
   const newer = refUser && refUser.base && ref.versione > refUser.base;
   return `<div class="head"><h1>Impostazioni</h1></div>
+    <section class="card flush helpcard">
+      <button type="button" class="glink" data-act="guida-open"><span class="help-ic" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v13"/><path d="M3 5.5c3-1.3 6-1.3 9 1.5 3-2.8 6-2.8 9-1.5V19c-3-1.3-6-1.3-9 1-3-2.3-6-2.3-9-1z"/></svg></span>
+        <span style="flex:1"><span class="gl-t">Guida completa</span><span class="gl-s">Come inserire i dati, cosa vuol dire ogni schermata, cosa salva Quota</span></span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+      <button type="button" class="listlink" data-act="intro-open">Rivedi l'introduzione</button>
+    </section>
     <h3 class="group">Il tuo fondo</h3>
     <section class="card flush" style="margin-top:0">
       <div class="row"><div class="row-name">${esc(data.fondo.nome)}</div><div class="row-meta">Albo COVIP n. ${esc(data.fondo.albo_covip || '—')} · adesione ${esc(data.fondo.adesione || '—')}</div></div>
@@ -1898,9 +1915,12 @@ window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTi
   refUser = loadJSON(REF_USER_KEY);
   const pref = loadJSON(PREF_KEY);
   ui.priv = !!(pref && pref.privata);
+  ui.introVista = pref && Number(pref.intro) > 0 ? Number(pref.intro) : 0;
   const cached = loadJSON(REF_CACHE_KEY);
   if (cached && cached.versione > ref.versione) ref = cached;
   render();
+  // Introduzione alla prima apertura (e dopo cambi importanti); in modalità privata aspetta la prossima volta.
+  if (ui.introVista < INTRO_VER && !ui.priv) introOpen();
   refreshRef();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

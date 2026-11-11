@@ -9,7 +9,13 @@ Web app personale per tenere sotto controllo la previdenza complementare da iPho
 ## Come si usa
 1. Apri l'indirizzo in **Safari** sull'iPhone.
 2. Condividi › **Aggiungi alla schermata Home**.
-3. Al primo avvio: **Importa il tuo storico** (file `quota-backup` in formato JSON) oppure **Inizia da zero**.
+3. Al primo avvio parte l'**introduzione** (7 passi): cosa fa l'app, cosa salva e cosa no, le due fonti dei dati, il pulsante Inserisci, promemoria e privacy, poi **Hai già un backup?** (Importa il backup) e, solo se si parte da zero, la configurazione (comparto, iscrizione, aliquote, giorno di paga). Chi ha già dei dati vede al posto degli ultimi due passi il riepilogo delle impostazioni.
+
+## Introduzione e guida
+- `guida.js` contiene l'introduzione a passi e la **guida completa** (in cima alle Impostazioni › Guida completa, 13 sezioni). Si rivede da Impostazioni › Rivedi l'introduzione.
+- Le illustrazioni sono SVG disegnati nel codice (tutto il file, testi compresi, circa 37 KB, 12 KB compresso): seguono chiaro/scuro, non contengono dati personali e non vanno rifatte a ogni modifica come gli screenshot.
+- La versione dell'introduzione vista è in `quota.pref.v1` › `intro`. Per farla rivedere a tutti dopo un cambio importante, aumentare `INTRO_VER` in `guida.js`. In modalità privata non parte da sola.
+- Quando cambia una schermata, aggiornare la sezione corrispondente in `guidaSezioni()`.
 
 ## Busta paga in PDF
 Pulsante **Inserisci** in Panoramica › **Leggi dalla busta paga (PDF)**: l'app legge mese, imponibile, contributo azienda, contributo volontario e TFR e compila il modulo; poi controlli e salvi. I contributi vengono confrontati con le aliquote impostate (Impostazioni › Aliquote): se la busta indica una percentuale diversa (es. azienda 2% invece di 1,5%), il pulsante **Aggiorna l'aliquota da …** registra il cambio da quel mese con un tocco. Il PDF non viene caricato né conservato. Funziona con i PDF con testo (non con scansioni/foto).
@@ -49,6 +55,8 @@ In Panoramica e in Anni il pulsante a **occhio** nasconde tutti gli importi: per
 Card in Panoramica: (contributo volontario + contributo azienda + rendimento maturato su questi due) ÷ (contributo volontario − IRPEF risparmiata con la deduzione). Il TFR e il suo rendimento restano fuori: sarebbero tuoi comunque. La deduzione conta il volontario fino al limite dell'anno (dopo il contributo azienda), all'aliquota dello scaglione scelto in Impostazioni › Tasse (`data/riferimenti.json` › `irpef.aliquote`, chiave = anno da cui vale).
 
 ## Rendimento della posizione
+Nella stessa scheda, sotto il grafico, **Da dove arrivano i soldi**: versato dall'adesione diviso in TFR, azienda e tuo contributo (in modalità privata su 100 €). Se il grafico non c'è ancora, compare come scheda a sé al secondo posto.
+
 In Panoramica: **Tutto** mostra il rendimento sul versato dall'adesione; **12 mesi** il rendimento ponderato nel tempo (variazione del valore quota, senza l'effetto dei versamenti) e, fuori dalla modalità privata, il guadagno del periodo. Il controllo busta paga contro accrediti è in Anni › Trimestri.
 
 ## Pulsante Inserisci
@@ -74,6 +82,7 @@ Ipotesi in `data/riferimenti.json` › `proiezioni`: rendimenti reali lordi per 
 | File | Cosa contiene |
 |---|---|
 | `index.html`, `app.css`, `app.js` | l'app |
+| `guida.js` | introduzione alla prima apertura e guida completa, con illustrazioni SVG |
 | `busta.js` | motore di lettura della busta paga in PDF, tutto nel telefono |
 | `busta-profili.js` | modelli di busta paga riconosciuti (voci, righe, colonne) |
 | `vendor/pdfjs/` | pdf.js 3.2.146 di Mozilla (Apache 2.0), caricato solo quando leggi un PDF |
