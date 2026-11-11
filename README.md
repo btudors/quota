@@ -32,18 +32,24 @@ Per un modello nuovo: copia il profilo esistente in `busta-profili.js`, cambia `
 ## Spazio deducibile
 In Panoramica la card **Spazio deducibile** somma contributo volontario e contributo azienda dell'anno (per mese di competenza della busta paga; il TFR non conta) e li confronta con il limite di legge. Il limite è in `data/riferimenti.json` › `deducibilita.limiti` (chiave = anno da cui vale): 5.164,57 € fino al 2025, 5.300 € dal 2026. Da metà novembre la card ricorda quanto si può ancora versare entro il 31 dicembre. Il dettaglio per anno è in Anni › Deducibilità.
 
+## Versamenti volontari fuori busta
+Pulsante **+ Aggiungi versamento volontario** nella card Spazio deducibile e in Anni › Deducibilità: data, importo, note e **Dedotto / Non dedotto**. In Anni il versamento compare tra i mesi, alla sua data (verde se dedotto, rosso se no). I dedotti contano nello spazio deducibile, i non dedotti no. Finché un versamento non dedotto non è segnato come comunicato, in cima ad Anni c'è un avviso con la scadenza per comunicarlo al fondo (31 dicembre dell'anno dopo, D.Lgs. 252/2005 art. 8 c. 4). Nei trimestri, un versamento fatto tra due valori del fondo viene sommato all'accredito atteso. Contano anche in "E se non avessi aderito?" e in "Ogni 1 € di tasca tua"; restano fuori dalle proiezioni della pagina Pensione (sono una tantum). Salvati nel backup.
+
 ## Giorno di paga
 Impostazioni › Promemoria › **Giorno di paga** (1–31, salvato anche nel backup). Da quel giorno il pulsante della Panoramica considera arrivata la busta del mese; se cade di sabato, domenica o festivo, dal primo giorno feriale successivo. Nei mesi più corti vale l'ultimo giorno del mese. Festivi considerati: 1 e 6 gennaio, Lunedì dell'Angelo (calcolato), 25 aprile, 1 maggio, 2 giugno, 15 agosto, 4 ottobre (dal 2026, L. 151/2025), 1 novembre, 8, 25 e 26 dicembre. Le notifiche di Comandi Rapidi restano a giorno fisso.
 
 ## Modalità privata
 In Panoramica e in Anni il pulsante a **occhio** nasconde tutti gli importi: per mostrare l'app a qualcuno senza far vedere quanto c'è nel fondo. L'app resta come l'hai lasciata anche dopo averla chiusa.
-- Al posto degli euro: rendimento %, quanto il fondo batte il TFR in azienda, confronto con fondi aperti e PIP in base 100, composizione "su ogni 100 € versati", spazio deducibile in % del limite.
+- Al posto degli euro: rendimento %, confronto con TFR in azienda, fondi aperti e PIP in base 100 (il tuo fondo = 100), composizione "su ogni 100 € versati", spazio deducibile in % del limite. In Anni, in alto, solo "Versato nell'anno" e i mesi registrati.
 - Restano visibili valore quota e costi del comparto (dati pubblici del fondo); il numero di quote no.
-- Pensione mostra solo percentuali (rendita in % dello stipendio, scenari in % rispetto alla tua scelta). Inserimento, Impostazioni, backup ed export non sono raggiungibili finché la modalità è attiva.
-- Tecnica: ogni importo passa da `eur()`/`eurS()`, che in modalità privata restituiscono sempre `€ •••••` (5 pallini, mai il numero di cifre vero). Nuove schermate: usare sempre questi formattatori, mai `num()` per importi.
+- Pensione mostra le previsioni in euro (capitale, rendita, scenari, calcolatore): sono stime future. Restano nascosti solo posizione di oggi e guadagno del fondo, e "Sei in linea?" resta in %. Inserimento, Impostazioni, backup ed export non sono raggiungibili finché la modalità è attiva.
+- Tecnica: ogni importo passa da `eur()`/`eurS()` (la pagina Pensione usa di proposito `eurF()`/`eurFS()`, sempre visibili), che in modalità privata restituiscono sempre `€ •••••` (5 pallini, mai il numero di cifre vero). Nuove schermate: usare sempre questi formattatori, mai `num()` per importi.
 
 ## Ogni 1 € di tasca tua
 Card in Panoramica: (contributo volontario + contributo azienda + rendimento maturato su questi due) ÷ (contributo volontario − IRPEF risparmiata con la deduzione). Il TFR e il suo rendimento restano fuori: sarebbero tuoi comunque. La deduzione conta il volontario fino al limite dell'anno (dopo il contributo azienda), all'aliquota dello scaglione scelto in Impostazioni › Tasse (`data/riferimenti.json` › `irpef.aliquote`, chiave = anno da cui vale).
+
+## Rendimento della posizione
+In Panoramica: **Tutto** mostra il rendimento sul versato dall'adesione; **12 mesi** il rendimento ponderato nel tempo (variazione del valore quota, senza l'effetto dei versamenti) e, fuori dalla modalità privata, il guadagno del periodo. Il controllo busta paga contro accrediti è in Anni › Trimestri.
 
 ## Pulsante Inserisci
 In Panoramica, al posto della scheda "mese da completare": **verde "Aggiornato"** se busta paga e dati del fondo del mese in corso ci sono; **arancione** se ne manca uno o manca la busta paga di un mese precedente; **rosso** se mancano entrambi. In cima alla pagina Inserisci un riquadro dice cosa manca. I dati del fondo dei mesi passati non vengono segnalati: dal sito non si recuperano più.

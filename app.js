@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -92,6 +92,8 @@ const monthLabel = (k) => { const { y, m } = parseKey(k); return cap(MESI[m - 1]
 const dateLabel = (k) => { const { y, m } = parseKey(k); return lastDay(y, m) + ' ' + MESI[m - 1] + ' ' + y; };
 // "settembre" se è lo stesso anno di rif, altrimenti "dicembre 2025"
 const prevMonthLabel = (k, rif) => { const a = parseKey(k); return MESI[a.m - 1] + (a.y !== parseKey(rif).y ? ' ' + a.y : ''); };
+// "12 marzo 2026" da "2026-03-12"
+const isoLabel = (s) => { const [y, m, d] = s.split('-').map(Number); return d + ' ' + MESI[m - 1] + ' ' + y; };
 function todayKey() { const d = new Date(); return key(d.getFullYear(), d.getMonth() + 1); }
 
 /* ---------- Giorno di paga e giorni feriali ---------- */
@@ -148,7 +150,7 @@ function emptyData() {
     formato: 'quota-backup', versione: 1, esportato: null,
     fondo: { nome: 'Previdenza Cooperativa', albo_covip: 170, adesione: 'collettiva', sito: LINK_FONDO, areaRiservata: LINK_AREA },
     impostazioni: { giornoPaga: 1, scaglioneIrpef: 2 },
-    comparti: [], aliquote: [], bustePaga: [], valorizzazioni: [], modifiche: {},
+    comparti: [], aliquote: [], bustePaga: [], valorizzazioni: [], versamentiVolontari: [], modifiche: {},
     pensione: { nascita: null }, prospetto: null
   };
 }
@@ -170,6 +172,13 @@ function normalize(d) {
   out.valorizzazioni = (d.valorizzazioni || []).filter((v) => v && v.mese && v.quote > 0 && v.valoreQuota > 0).map((v) => ({
     mese: v.mese, data: v.data || null, quote: Number(v.quote), valoreQuota: Number(v.valoreQuota), totaleVersato: Number(v.totaleVersato), comparto: v.comparto || null
   }));
+  // Versamenti volontari fuori busta paga (bonifico al fondo): dedotti o non dedotti.
+  out.versamentiVolontari = (d.versamentiVolontari || []).filter((x) => x && /^\d{4}-\d{2}-\d{2}$/.test(x.data || '') && Number(x.importo) > 0).map((x, i) => {
+    const r = { id: String(x.id || 'vv' + Date.now().toString(36) + i), data: x.data, importo: Number(x.importo), dedotto: x.dedotto !== false };
+    if (!r.dedotto && x.comunicato) r.comunicato = true;
+    if (x.nota) r.nota = String(x.nota).slice(0, 200);
+    return r;
+  }).sort((a, b) => a.data.localeCompare(b.data));
   out.modifiche = d.modifiche || {};
   // Pagina Pensione: mese di nascita (facoltativo) e dati del prospetto annuale del fondo (facoltativi).
   if (d.pensione && /^\d{4}-\d{2}$/.test(d.pensione.nascita || '')) out.pensione.nascita = d.pensione.nascita;
@@ -228,6 +237,8 @@ function tfrCoef(y, m) {
 function rateFor(k) { let r = data.aliquote[0]; for (const a of data.aliquote) if (a.dal <= k) r = a; return r; }
 function compartoFor(k) { let c = data.comparti[0] ? data.comparti[0].nome : 'Comparto'; for (const x of data.comparti) if (x.dal <= k) c = x.nome; return c; }
 function buste() { const m = {}; for (const b of data.bustePaga) m[b.mese] = b; return m; }
+/* Versamenti volontari fuori busta paga. k = mese "AAAA-MM", i = indice del mese. */
+function extras() { return (data.versamentiVolontari || []).map((x) => ({ ...x, k: x.data.slice(0, 7), i: idxOf(x.data.slice(0, 7)), y: Number(x.data.slice(0, 4)) })); }
 /* Contributi del mese: quelli letti dalla busta paga se ci sono, altrimenti stimati dalle aliquote.
    stimato = almeno uno dei due contributi è calcolato e non letto. */
 function monthCalc(b) {
@@ -252,15 +263,19 @@ function limiteDeducibile(y) {
 /* Spazio deducibile dell'anno: contributo tuo + azienda, per mese di competenza della busta paga. Il TFR non conta. */
 function deducibile(M, y) {
   const lim = limiteDeducibile(y); if (lim == null) return null;
-  let vol = 0, az = 0, mesi = 0, stimati = 0, ultimo = 0;
+  let vol = 0, az = 0, mesi = 0, stimati = 0, ultimo = 0, xd = 0, xn = 0;
   for (let m = 1; m <= 12; m++) {
     const d = M.months[key(y, m)]; if (!d) continue;
     vol += d.vol; az += d.az; mesi++; ultimo = m; if (d.stimato) stimati++;
   }
+  // Versamenti fuori busta: quelli dedotti usano lo spazio, quelli non dedotti no.
+  for (const x of M.X) if (x.y === y) { if (x.dedotto) xd += x.importo; else xn += x.importo; }
+  const busta = vol + az;
+  vol += xd;
   const usato = vol + az;
-  // Proiezione a fine anno: media dei mesi registrati per i mesi che mancano (solo se l'anno è in corso).
-  const proiezione = mesi && ultimo < 12 ? usato + (usato / mesi) * (12 - ultimo) : null;
-  return { y, lim, vol, az, usato, resto: lim - usato, oltre: Math.max(0, usato - lim), mesi, stimati, ultimo, proiezione };
+  // Proiezione a fine anno: media delle buste registrate per i mesi che mancano (solo se l'anno è in corso).
+  const proiezione = mesi && ultimo < 12 ? usato + (busta / mesi) * (12 - ultimo) : null;
+  return { y, lim, vol, az, usato, resto: lim - usato, oltre: Math.max(0, usato - lim), mesi, stimati, ultimo, proiezione, xd, xn };
 }
 function snaps() {
   return data.valorizzazioni.map((v) => ({ k: v.mese, i: idxOf(v.mese), q: v.quote, vq: v.valoreQuota, e: v.totaleVersato, v: v.quote * v.valoreQuota, c: v.comparto || compartoFor(v.mese), data: v.data }));
@@ -271,10 +286,12 @@ function model() {
   const months = {};
   for (const b of data.bustePaga) months[b.mese] = monthCalc(b);
   const last = P[P.length - 1] || null;
+  const X = extras();
   let tv = 0, tvol = 0, taz = 0, ttfr = 0;
   for (const k in months) { const d = months[k]; tv += d.tot; tvol += d.vol; taz += d.az; ttfr += d.tfr; }
+  for (const x of X) { tv += x.importo; tvol += x.importo; }
   const firstKey = data.bustePaga.length ? data.bustePaga[0].mese : (P[0] ? P[0].k : todayKey());
-  return { B, P, months, last, tv, tvol, taz, ttfr, firstKey };
+  return { B, P, X, months, last, tv, tvol, taz, ttfr, firstKey };
 }
 
 function quarterInfo(M, y, q) {
@@ -293,10 +310,13 @@ function quarterInfo(M, y, q) {
   const end = before[before.length - 1];
   const next = M.P.find((p) => p.i > endIdx);
   if (!next) { res.st = 'attesa'; res.note = 'Atteso con il valore di ' + MESI[(3 * q) % 12]; return res; }
-  const cred = next.e - end.e, diff = cred - amt;
-  res.cred = cred; res.diff = diff;
-  if (Math.abs(diff) < 0.05) { res.st = 'ok'; res.note = 'Accreditati ' + eur(cred) + ' · al centesimo'; }
-  else { res.st = 'diff'; res.note = 'Accreditati ' + eur(cred) + ' · differenza ' + eurS(diff); }
+  // Versamenti fuori busta arrivati tra i due valori del fondo: sono nello stesso accredito.
+  let extra = 0; for (const x of M.X) if (x.i > end.i && x.i <= next.i) extra += x.importo;
+  const cred = next.e - end.e, diff = cred - amt - extra;
+  res.cred = cred; res.diff = diff; res.extra = extra;
+  const di = extra > 0 ? ' (di cui ' + eur(extra) + ' fuori busta)' : '';
+  if (Math.abs(diff) < 0.05) { res.st = 'ok'; res.note = 'Accreditati ' + eur(cred) + di + ' · al centesimo'; }
+  else { res.st = 'diff'; res.note = 'Accreditati ' + eur(cred) + di + ' · differenza ' + eurS(diff); }
   return res;
 }
 
@@ -340,6 +360,8 @@ function comparison(M) {
     const d = M.months[k], y = parseKey(k).y;
     versD += d.tot; volD += d.vol; azD += d.az; tfrY[y] = (tfrY[y] || 0) + d.tfr;
   }
+  // Fuori busta: già nel valore del fondo; senza fondo sarebbero rimasti in tasca.
+  for (const x of M.X) if (x.i <= D) { versD += x.importo; volD += x.importo; }
   const pend = versD - M.last.e;
   const azQ = (qe) => { let t = 0; for (let i = qe - 2; i <= qe; i++) { const d = M.months[keyOf(i)]; if (d) t += d.az; } return t; };
   // contributi azienda già compresi nel primo saldo: trimestri chiusi prima della prima valorizzazione
@@ -391,6 +413,12 @@ function moltiplicatore(M, C) {
     const d = M.months[k], y = parseKey(k).y;
     vol += d.vol; az += d.az; tot += d.tot;
     anni[y] = anni[y] || { vol: 0, az: 0 }; anni[y].vol += d.vol; anni[y].az += d.az;
+  }
+  // Fuori busta: contano tutti come soldi tuoi, solo quelli dedotti danno IRPEF risparmiata.
+  for (const x of M.X) {
+    if (x.i > D) continue;
+    vol += x.importo; tot += x.importo;
+    if (x.dedotto) { anni[x.y] = anni[x.y] || { vol: 0, az: 0 }; anni[x.y].vol += x.importo; }
   }
   // Deduzione: il volontario conta fino al limite dell'anno, dopo il contributo azienda.
   for (const y in anni) {
@@ -469,7 +497,8 @@ function viewWelcome() {
 /* ---------- Panoramica ---------- */
 function chartGeom(M) {
   const P = M.P; if (P.length < 2) return null;
-  const pts = ui.range === 'all' ? P : P.filter((p) => p.i >= M.last.i - 11);
+  // 12 mesi: dal valore di un anno prima (13 punti), così il rendimento copre 12 mesi interi.
+  const pts = ui.range === 'all' ? P : P.filter((p) => p.i >= M.last.i - 12);
   if (pts.length < 2) return null;
   const W = Math.max(260, Math.min(window.innerWidth, 560) - 72), H = 170, T = 14, Bm = 10;
   const x0 = pts[0].i, x1 = pts[pts.length - 1].i;
@@ -501,13 +530,37 @@ function chartGeom(M) {
   return { pts, W, H, X, Y, line, gap, step, area, hasGap, switches, labels };
 }
 
-function heroTexts(sel, isLatest, M) {
+/* Rendimento ponderato nel tempo tra due valori del fondo: concatena i rendimenti mese per mese
+   togliendo i versamenti arrivati. Non dipende da quanto e quando si è versato; dentro uno stesso
+   comparto coincide con la variazione del valore quota, e regge anche i cambi di comparto. */
+function twr(M, a, b) {
+  const P = M.P, ia = P.indexOf(a), ib = P.indexOf(b);
+  let f = 1;
+  for (let j = ia + 1; j <= ib; j++) { const p = P[j - 1], q = P[j]; f *= (q.v - (q.e - p.e)) / p.v; }
+  return f - 1;
+}
+/* Confronto con il TFR in azienda, con base il tuo fondo = 100 (come la card "E se non avessi aderito?"). */
+function tfrChip(C) {
+  const d = C.tfr / C.own - 1;
+  return 'Con il TFR in azienda avresti il ' + pct(Math.abs(d)).slice(1) + (d <= 0 ? ' in meno' : ' in più');
+}
+function heroTexts(sel, isLatest, M, G) {
+  // Vista 12 mesi: rendimento e guadagno del periodo, dal primo punto del grafico.
+  const s0 = ui.range === '1y' && G ? G.pts[0] : null;
+  if (s0 && sel !== s0) {
+    const r = twr(M, s0, sel), gp = (sel.v - s0.v) - (sel.e - s0.e);
+    const da = 'da ' + MESI[parseKey(s0.k).m - 1] + ' ' + parseKey(s0.k).y;
+    if (priv()) return { value: pct(r), chip: 'Rendimento ' + da, when: 'al ' + dateLabel(sel.k),
+      hint: isLatest ? 'Solo la forma del grafico: nessun importo, nemmeno toccando.' : 'Rendimento del periodo · comparto ' + sel.c };
+    return { value: eur(sel.v), chip: eurS(gp) + ' · ' + pct(r) + ' ' + da, when: 'al ' + dateLabel(sel.k),
+      hint: isLatest ? 'Guadagno del periodo, senza i versamenti. Tocca o scorri il grafico.' : 'Versato nel periodo: ' + eur(sel.e - s0.e) + ' · comparto ' + sel.c };
+  }
   const g = sel.v - sel.e;
   if (priv()) {
     // Nessun importo: rendimento sul versato e, sull'ultimo mese, il confronto con il TFR in azienda.
-    const C = isLatest ? comparison(M) : null;
+    const C = isLatest && ui.range === 'all' ? comparison(M) : null;
     let chip = 'sul versato';
-    if (C && C.tfr > 0) { const d = C.own / C.tfr - 1; chip = d >= 0 ? 'Il fondo batte il TFR del ' + pct(d).slice(1) : 'Il TFR in azienda è avanti del ' + pct(-d).slice(1); }
+    if (C && C.tfr > 0 && C.own > 0) chip = tfrChip(C);
     return {
       value: pct(g / sel.e), chip, when: 'al ' + dateLabel(sel.k),
       hint: isLatest ? 'Solo la forma del grafico: nessun importo, nemmeno toccando.' : 'Rendimento sul versato fino ad allora · comparto ' + sel.c
@@ -537,7 +590,7 @@ function viewHome(M) {
   const G = chartGeom(M);
   if (M.last && G) {
     const sel = G.pts.find((p) => p.i === ui.selIdx) || G.pts[G.pts.length - 1];
-    const t = heroTexts(sel, sel === G.pts[G.pts.length - 1], M);
+    const t = heroTexts(sel, sel === G.pts[G.pts.length - 1], M, G);
     html += `<section class="hero" aria-label="${P_ ? 'Rendimento della posizione' : 'Valore della posizione'}">
       <div class="top"><span class="lbl">${P_ ? 'Rendimento della posizione' : 'Valore della posizione'}</span>
         <div class="seg-dark" role="group" aria-label="Periodo">
@@ -614,7 +667,9 @@ function viewHome(M) {
     html += `<section class="card" aria-label="Confronto con le alternative">
       <div class="title">E se non avessi aderito?</div>
       <div class="sub">${P_ ? 'Il tuo fondo vale 100. Stessi versamenti, stima su medie pubbliche' : 'Stessi versamenti, situazione al ' + C.date + '. Stima su medie pubbliche'}${userTag}.</div>
-      <div class="cmp-hi ${vsTfr < 0 ? 'neg' : ''}"><span class="num">${P_ ? pct(C.own / C.tfr - 1) : eurS(vsTfr, 0)}</span><span>rispetto al TFR lasciato in azienda</span></div>
+      <div class="cmp-hi ${vsTfr < 0 ? 'neg' : ''}">${P_
+        ? `<span class="num">${pct(C.tfr / C.own - 1)}</span><span>con il TFR lasciato in azienda</span>`
+        : `<span class="num">${eurS(vsTfr, 0)}</span><span>rispetto al TFR lasciato in azienda</span>`}</div>
       <div class="cmp-rows">
         ${row(esc(data.fondo.nome), 'Il tuo fondo, dato reale', C.own, 'var(--accent)', true)}
         ${row('Fondo aperto (banche, SGR)', 'Costi medi ' + pctPlain(C.R.isc.fondiAperti) + ' l\'anno, niente contributo azienda', C.fpa, 'var(--alt)')}
@@ -631,31 +686,7 @@ function viewHome(M) {
     </section>`;
   }
 
-  // Versato e accreditato
   if (M.tv > 0) {
-    let okSum = 0, waitSum = 0, runSum = 0; const waitNames = [], diffNames = [];
-    for (const y of yearsRange(M)) for (let q = 1; q <= 4; q++) {
-      const r = quarterInfo(M, y, q);
-      if (r.st === 'ok' || r.st === 'diff') okSum += r.amt;
-      if (r.st === 'diff') diffNames.push(q + '° trimestre ' + y);
-      if (r.st === 'attesa') { waitSum += r.amt; waitNames.push(q + '° trimestre ' + y); }
-      if (r.st === 'corso') runSum += r.amt;
-    }
-    let note = waitNames.length ? 'Il ' + waitNames.join(', ') + ' risulta versato in busta paga ma non ancora sul sito: lo controllo da solo al prossimo inserimento.' : 'Ogni trimestre versato risulta accreditato dal fondo, al centesimo.';
-    if (diffNames.length) note = 'Da verificare: ' + diffNames.join(', ') + ' non torna con le buste paga. Trovi il dettaglio in Anni.';
-    if (runSum > 0 && !P_) note += ' Il trimestre in corso vale finora ' + eur(runSum) + '.';
-    const v3 = (x) => P_ ? pctPlain(x / M.tv, 1) : eur(x);
-    html += `<section class="card" aria-label="Versato e accreditato">
-      <div class="title">Versato e accreditato</div><div class="sub">Busta paga confrontata con il fondo, trimestre per trimestre</div>
-      <div class="bar"><div style="width:${(okSum / M.tv * 100).toFixed(1)}%;background:var(--accent)"></div><div style="width:${((waitSum + runSum) / M.tv * 100).toFixed(1)}%;background:var(--az)"></div></div>
-      <div class="grid3">
-        <div><div class="kv-l">Versato</div><div class="kv-v">${v3(M.tv)}</div></div>
-        <div><div class="kv-l">Accreditato</div><div class="kv-v ok-t">${v3(okSum)}</div></div>
-        <div><div class="kv-l">In attesa</div><div class="kv-v warn-t">${v3(waitSum + runSum)}</div></div>
-      </div>
-      <div class="sub" style="margin-top:12px;color:var(--text-2)">${note}</div>
-    </section>`;
-
     // Composizione
     const w = (x) => Math.round(x / M.tv * 100) + '%';
     const v = (x) => P_ ? Math.round(x / M.tv * 100) + ' €' : `${eur(x)} <span style="color:var(--muted)">· ${w(x)}</span>`;
@@ -711,7 +742,8 @@ function cardDeducibile(M) {
     else note.push('A questo ritmo a fine anno arrivi a ' + eur(D.proiezione, 0) + (fine >= 0 ? ': resterebbero ' + eur(fine, 0) + ' di spazio.' : ', oltre il limite di ' + eur(-fine, 0) + '.'));
   }
   if (D.stimati) note.push(D.stimati + (D.stimati === 1 ? ' mese ha' : ' mesi hanno') + ' i contributi stimati dalle aliquote: ricarica la busta paga per i valori esatti.');
-  note.push('Non conta eventuali versamenti fatti fuori busta paga.');
+  if (D.xd > 0) note.push(P_ ? 'Comprende i versamenti fatti fuori busta paga.' : 'Comprende ' + eur(D.xd) + ' versati fuori busta paga.');
+  if (D.xn > 0) note.push(P_ ? 'I versamenti non dedotti non contano.' : 'Non contano ' + eur(D.xn) + ' versati e non dedotti.');
   let banner = '';
   const fineAnno = D.y === oggi.y && (oggi.m === 12 || (oggi.m === 11 && new Date().getDate() >= 15));
   if (D.oltre > 0.005) banner = `<div class="banner warn" style="margin-top:14px;border-radius:12px">La parte oltre il limite non è deducibile. Comunicala al fondo entro il 31 dicembre ${D.y + 1}: così alla fine non verrà tassata di nuovo.</div>`;
@@ -728,7 +760,8 @@ function cardDeducibile(M) {
     </div>
     ${banner}
     <div class="sub" style="margin-top:12px;color:var(--text-2)">${note.map(esc).join(' ')}</div>
-    <button type="button" class="linkbtn" data-act="go-anni" data-v="${D.y}">Dettaglio nel resoconto ${D.y}</button>
+    ${P_ ? '' : '<button type="button" class="linkbtn" data-act="vv-new">+ Aggiungi versamento volontario</button>'}
+    <button type="button" class="linkbtn" data-act="go-anni" data-v="${D.y}"${P_ ? '' : ' style="margin-top:0"'}>Dettaglio nel resoconto ${D.y}</button>
   </section>`;
 }
 
@@ -741,7 +774,7 @@ function bindChart(M) {
     let best = G.pts[0], bd = Infinity;
     for (const p of G.pts) { const d = Math.abs(G.X(p.i) - x); if (d < bd) { bd = d; best = p; } }
     ui.selIdx = best.i;
-    const t = heroTexts(best, best === G.pts[G.pts.length - 1], M);
+    const t = heroTexts(best, best === G.pts[G.pts.length - 1], M, G);
     $('#h-value').textContent = t.value; $('#h-chip').textContent = t.chip; $('#h-when').textContent = t.when; $('#h-hint').textContent = t.hint;
     const sx = G.X(best.i).toFixed(1);
     for (const id of ['h-vline']) { $('#' + id).setAttribute('x1', sx); $('#' + id).setAttribute('x2', sx); }
@@ -762,6 +795,7 @@ function viewAnni(M) {
   const Y = ui.year, tk = todayKey();
   let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">Resoconto</div>${privPill()}</div><div class="title-row"><h1>Anno ${Y}</h1><div class="head-actions">${privBtn()}</div></div></div>
     <div class="seg" role="group" aria-label="Scegli l'anno">${ys.map((y) => `<button type="button" data-act="year" data-v="${y}" aria-pressed="${y === Y}">${y}</button>`).join('')}</div>`;
+  html += bannerNonDedotti(M);
 
   // In privata: le righe dei mesi mostrano la ripartizione in % e il valore quota (pubblico), mai quote o importi.
   const parts = (d) => P_ ? `Ripartizione: Vol. ${pq(d.vol / d.tot)} · Az. ${pq(d.az / d.tot)} · TFR ${pq(d.tfr / d.tot)}` : `Vol. ${eur(d.vol)} · Az. ${eur(d.az)} · TFR ${eur(d.tfr)}`;
@@ -775,8 +809,17 @@ function viewAnni(M) {
 
   let yt = 0, yv = 0, ya = 0, yf = 0, count = 0; const rows = [];
   const pmK = (pendingMonth(M) || {}).k;
+  // Versamento fuori busta: riga sotto il mese in cui è stato fatto, verde se dedotto, rossa se no.
+  const vvRow = (x) => `<div class="row">
+      <div class="row-top"><span class="row-name">Versamento volontario</span><span class="row-name num">${eur(x.importo)}</span></div>
+      <div class="row-meta">${isoLabel(x.data)} · fuori busta paga</div>
+      ${x.nota && !P_ ? `<div class="row-meta">${esc(x.nota)}</div>` : ''}
+      <div class="row-actions"><span class="pill ${x.dedotto ? 'ok' : 'bad'}">${x.dedotto ? 'Dedotto' : 'Non dedotto' + (x.comunicato ? ' · comunicato' : '')}</span>${P_ ? '' : `<button type="button" class="chipbtn" data-act="vv-edit" data-v="${esc(x.id)}" aria-label="Modifica il versamento del ${isoLabel(x.data)}">Modifica</button>`}</div>
+    </div>`;
   for (let m = 1; m <= 12; m++) {
     const k = key(Y, m), d = M.months[k], snap = M.P.find((p) => p.k === k);
+    const xs = M.X.filter((x) => x.k === k);
+    for (const x of xs) { yt += x.importo; yv += x.importo; }
     if (d) { yt += d.tot; yv += d.vol; ya += d.az; yf += d.tfr; count++; }
     const beforeStart = k < M.firstKey, future = k >= tk;
     if (d) {
@@ -797,16 +840,10 @@ function viewAnni(M) {
     } else {
       rows.push(`<div class="row"><div class="row-top"><span class="row-name" style="color:var(--faint)">${cap(MESI[m - 1])}</span><span class="sub">${future ? 'In arrivo' : 'Prima dell\'adesione'}</span></div></div>`);
     }
+    for (const x of xs) rows.push(vvRow(x));
   }
 
-  // In privata il totale dell'anno diventa la media mensile confrontata con l'anno prima
-  // (media e non totale: un anno in corso ha meno mesi).
-  let bigY = eur(yt);
-  if (P_) {
-    let pt = 0, pc = 0;
-    for (let m = 1; m <= 12; m++) { const d = M.months[key(Y - 1, m)]; if (d) { pt += d.tot; pc++; } }
-    bigY = count && pc ? `${pct((yt / count) / (pt / pc) - 1)} <span class="big-sub">al mese rispetto al ${Y - 1}</span>` : `${count ? 'Primo anno' : '—'}`;
-  }
+  const mesiReg = count + ' ' + (count === 1 ? 'mese registrato' : 'mesi registrati');
   // Scheda dell'anno: versato per busta paga (come la CU) e situazione del fondo a fine periodo.
   const yp = (x) => P_ ? pq(x / yt) : eur(x);
   const ysnap = M.P.filter((p) => parseKey(p.k).y === Y);
@@ -835,8 +872,9 @@ function viewAnni(M) {
   if (qs.some((r) => r.st === 'diff')) notes.push(['bad', 'Qualche trimestre non torna con quanto accreditato dal fondo: trovi il dettaglio in Trimestri.']);
   else if (qs[3].st === 'attesa') notes.push(['warn', 'Le buste di ott – dic' + (P_ ? '' : ' (' + eur(qs[3].amt) + ')') + ' arrivano al fondo a gennaio ' + (Y + 1) + ': il controllo è in Trimestri.']);
   html += `<section class="card" aria-label="L'anno ${Y}">
-    <div class="sub">Versato nell'anno · ${count} ${count === 1 ? 'mese registrato' : 'mesi registrati'}</div>
-    <div class="num" style="font-size:32px;font-weight:700;letter-spacing:-.02em;margin:2px 0 6px">${bigY}</div>
+    ${P_
+      ? `<div style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1.15">Versato nell'anno</div><div style="font-size:17px;font-weight:600;color:var(--muted);margin:2px 0 6px">${mesiReg}</div>`
+      : `<div class="sub">Versato nell'anno · ${mesiReg}</div><div class="num" style="font-size:32px;font-weight:700;letter-spacing:-.02em;margin:2px 0 6px">${eur(yt)}</div>`}
     ${yr(dotL('vol', 'Tuo contributo'), yp(yv))}${yr(dotL('az', 'Azienda'), yp(ya))}${yr(dotL('tfr', 'TFR'), yp(yf))}
     ${fondoRows}
     ${comps.length ? `<div class="sub" style="margin-top:10px">${comps.length > 1 ? 'Comparti nell\'anno: ' + comps.map(esc).join(' → ') : 'Comparto ' + esc(comps[0])}</div>` : ''}
@@ -844,7 +882,7 @@ function viewAnni(M) {
   </section>`;
 
   const D = deducibile(M, Y);
-  if (D && D.mesi) {
+  if (D && (D.mesi || D.xd || D.xn)) {
     const passato = Y < parseKey(todayKey()).y;
     const ql = (x) => pq(x / D.lim);
     const v = (x) => P_ ? ql(x) : eur(x);
@@ -859,15 +897,16 @@ function viewAnni(M) {
         <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${v(D.az)}</div></div>
         <div><div class="kv-l">${lab3}</div><div class="kv-v">${val3}</div></div>
       </div>
-      <div class="sub" style="margin-top:12px;color:var(--text-2)">${D.stimati ? D.stimati + (D.stimati === 1 ? ' mese con contributi stimati' : ' mesi con contributi stimati') + ' dalle aliquote, segnati qui sotto. ' : 'Contributi letti dalle buste paga. '}Il TFR versato al fondo${P_ ? '' : ' (' + eur(yf) + ')'} non rientra nel limite. Per conferma, confronta il totale con la Certificazione Unica.</div>
+      <div class="sub" style="margin-top:12px;color:var(--text-2)">${D.stimati ? D.stimati + (D.stimati === 1 ? ' mese con contributi stimati' : ' mesi con contributi stimati') + ' dalle aliquote, segnati qui sotto. ' : 'Contributi letti dalle buste paga. '}${D.xd > 0 ? (P_ ? 'Comprende i versamenti fuori busta dedotti. ' : 'Comprende ' + eur(D.xd) + ' versati fuori busta e dedotti. ') : ''}${D.xn > 0 ? (P_ ? 'I versamenti non dedotti non contano. ' : 'Non contano ' + eur(D.xn) + ' non dedotti. ') : ''}Il TFR versato al fondo${P_ ? '' : ' (' + eur(yf) + ')'} non rientra nel limite. Per conferma, confronta il totale con la Certificazione Unica.</div>
+      ${P_ ? '' : '<button type="button" class="linkbtn" data-act="vv-new">+ Aggiungi versamento volontario</button>'}
     </section>`;
   }
 
   html += verificaProspetto(M, Y);
   const periods = ['gen – mar', 'apr – giu', 'lug – set', 'ott – dic'];
   const pill = { ok: ['ok', 'Accreditato'], diff: ['bad', 'Da verificare'], attesa: ['warn', 'In attesa'], corso: ['idle', 'In corso'], futuro: ['idle', 'Da versare'], vuoto: ['idle', 'Nessun dato'] };
-  html += `<h2 class="sec">Trimestri</h2><section class="card flush" aria-label="Trimestri">` + [1, 2, 3, 4].map((q) => {
-    const r = quarterInfo(M, Y, q), p = pill[r.st];
+  html += `<h2 class="sec">Trimestri</h2><section class="card flush" aria-label="Trimestri">` + trimestriRiepilogo(qs, Y) + [1, 2, 3, 4].map((q) => {
+    const r = qs[q - 1], p = pill[r.st];
     let note = r.note || (r.st === 'corso' ? 'Mesi ancora da inserire' : r.st === 'futuro' ? 'Non ancora iniziato' : 'Nessuna busta paga registrata');
     if (P_ && r.st === 'ok') note = 'Torna al centesimo con le buste paga';
     if (P_ && r.st === 'diff') note = 'Non torna con le buste paga';
@@ -877,6 +916,54 @@ function viewAnni(M) {
 
   html += `<h2 class="sec">Mese per mese</h2><section class="card flush" aria-label="Dati mensili inseriti">${rows.join('')}</section>`;
   return html;
+}
+
+/* Riepilogo in cima ai Trimestri (era la card "Versato e accreditato" della Panoramica):
+   busta paga dell'anno confrontata con quanto il fondo ha accreditato. */
+function trimestriRiepilogo(qs, Y) {
+  const P_ = priv();
+  let tot = 0, okSum = 0, waitSum = 0; const waitNames = [], diffNames = [];
+  for (const r of qs) {
+    tot += r.amt;
+    if (r.st === 'ok' || r.st === 'diff') okSum += r.amt;
+    if (r.st === 'diff') diffNames.push(r.q + '° trimestre');
+    if (r.st === 'attesa' || r.st === 'corso') waitSum += r.amt;
+    if (r.st === 'attesa') waitNames.push(r.q + '° trimestre');
+  }
+  if (tot <= 0) return '';
+  const v3 = (x) => P_ ? pctPlain(x / tot, 1) : eur(x);
+  let note = waitNames.length ? 'Il ' + waitNames.join(' e il ') + ' risulta versato in busta paga ma non ancora sul sito: lo controllo da solo al prossimo inserimento.'
+    : okSum >= tot - 0.005 ? 'Ogni trimestre versato nel ' + Y + ' risulta accreditato dal fondo, al centesimo.' : 'Il trimestre in corso si controlla quando è completo.';
+  if (diffNames.length) note = 'Da verificare: il ' + diffNames.join(' e il ') + ' non torna con le buste paga.';
+  return `<div class="row" aria-label="Versato e accreditato nel ${Y}">
+    <div class="sub">Busta paga confrontata con il fondo</div>
+    <div class="bar" style="margin-top:10px"><div style="width:${(okSum / tot * 100).toFixed(1)}%;background:var(--accent)"></div><div style="width:${(waitSum / tot * 100).toFixed(1)}%;background:var(--az)"></div></div>
+    <div class="grid3">
+      <div><div class="kv-l">Versato</div><div class="kv-v">${v3(tot)}</div></div>
+      <div><div class="kv-l">Accreditato</div><div class="kv-v ok-t">${v3(okSum)}</div></div>
+      <div><div class="kv-l">In attesa</div><div class="kv-v warn-t">${v3(waitSum)}</div></div>
+    </div>
+    <div class="sub" style="margin-top:10px;color:var(--text-2)">${note}</div>
+  </div>`;
+}
+
+/* Avviso in cima ad Anni: versamenti non dedotti ancora da comunicare al fondo.
+   Va fatto entro il 31 dicembre dell'anno dopo il versamento (D.Lgs. 252/2005, art. 8 c. 4):
+   così quella parte non viene tassata quando la ritiri. */
+function bannerNonDedotti(M) {
+  const P_ = priv(), per = {};
+  for (const x of M.X) if (!x.dedotto && !x.comunicato) per[x.y] = (per[x.y] || 0) + x.importo;
+  const oggi = new Date();
+  return Object.keys(per).sort().map((y) => {
+    y = Number(y);
+    const scaduto = oggi > new Date(y + 1, 11, 31, 23, 59);
+    const cosa = P_ ? 'versamenti non dedotti nel ' + y : '<b>' + eur(per[y]) + '</b> versati e non dedotti nel ' + y;
+    const testo = scaduto
+      ? `Hai ${cosa}: la scadenza per comunicarli al fondo era il 31 dicembre ${y + 1}. Chiedi al fondo come procedere.`
+      : `Hai ${cosa}: comunicali al fondo entro il <b>31 dicembre ${y + 1}</b>, così quando li ritiri non verranno tassati.`;
+    return `<div class="banner ${scaduto ? 'bad' : 'warn'} ins-miss" style="margin-top:12px" role="status">${testo}${P_ ? '' : `
+      <div class="chips">${extLink(LINK_AREA, 'Area riservata', 'chipbtn warn', 'text-decoration:none;background:var(--card)')}<button type="button" class="chipbtn warn" data-act="vv-com" data-v="${y}">Segna come comunicato</button></div>`}</div>`;
+  }).join('');
 }
 
 /* ---------- Inserisci / Modifica ---------- */
@@ -1249,6 +1336,11 @@ function pensInLinea(M, B) {
   return { all: mk(run(0)), anno: f >= 0 && f < P.length - 1 ? mk(run(f)) : null, y, dal: P[0].k };
 }
 
+/* Pagina Pensione: le previsioni restano in euro anche in modalità privata (sono stime future).
+   Si nascondono solo la posizione di oggi e il guadagno, che insieme a capitale e versato la ricostruirebbero. */
+const eurF = (n, d = 2) => num(n, d) + ' €';
+const eurFS = (n, d = 2) => (n >= 0 ? '+' : '') + eurF(n, d);
+
 function pensChart(S, P_, annoFine) {
   const L = S.filter((s) => s.line), cur = L.find((s) => s.cur) || L[0];
   const n = cur.n, mx = Math.max(...L.map((s) => Math.max(...s.pts))) * 1.04, W = 196, H = 230;
@@ -1261,8 +1353,8 @@ function pensChart(S, P_, annoFine) {
     h += `<polyline fill="none" stroke="${col(s)}" stroke-width="${s.cur ? 2.6 : 1.4}" ${dash(s) ? `stroke-dasharray="${dash(s)}"` : ''} stroke-linecap="round" points="${s.pts.map((v, i) => X(i).toFixed(1) + ',' + Y(v).toFixed(1)).join(' ')}"/>`;
     let y = Y(s.v); if (y - last < 34) y = last + 34; last = y;
     h += `<circle cx="${6 + W}" cy="${Y(s.v).toFixed(1)}" r="3.2" fill="${col(s)}"/>`;
-    const val = P_ ? (s.cur ? 'la tua scelta' : pct(s.v / cur.v - 1, 0)) : eur(s.v, 0);
-    lab.push(`<text x="${W + 14}" y="${(y - 1).toFixed(1)}" font-size="14" font-weight="${s.cur ? 700 : 600}" fill="var(--text)">${val}</text><text x="${W + 14}" y="${(y + 14).toFixed(1)}" font-size="12" fill="var(--muted)">${s.id === 'tfr' ? 'TFR in azienda' : esc(s.nome)}${s.cur && !P_ ? ' · tuo' : ''}</text>`);
+    const val = eurF(s.v, 0);
+    lab.push(`<text x="${W + 14}" y="${(y - 1).toFixed(1)}" font-size="14" font-weight="${s.cur ? 700 : 600}" fill="var(--text)">${val}</text><text x="${W + 14}" y="${(y + 14).toFixed(1)}" font-size="12" fill="var(--muted)">${s.id === 'tfr' ? 'TFR in azienda' : esc(s.nome)}${s.cur ? ' · tuo' : ''}</text>`);
   }
   const y0 = parseKey(todayKey()).y;
   h += lab.join('') + `<text x="6" y="${H + 16}" font-size="11" fill="var(--muted)">${y0}</text><text x="${6 + W}" y="${H + 16}" font-size="11" text-anchor="end" fill="var(--muted)">${annoFine}</text>`;
@@ -1301,27 +1393,31 @@ function viewPensione(M) {
   const pq1 = (x) => x == null ? '—' : pctPlain(x, 0);
 
   // Riepilogo
+  // Rendita: prima l'importo annuale, grande; sotto quello mensile, più piccolo.
+  const rendita = (lab, v, color) => `<div><div class="kv-l" style="color:var(--hero-2)">${lab}</div>
+      <div class="kv-v" style="color:${color};font-size:24px;font-weight:700;letter-spacing:-.02em">${eurF(v, 0)}<span style="font-size:14px;font-weight:600;color:var(--hero-2)"> l'anno</span></div>
+      <div class="kv-l" style="color:var(--hero-2);font-size:15px">${eurF(v / 12, 0)} al mese</div></div>`;
   html += `<section class="hero" aria-label="Previsione al pensionamento">
     <div class="lbl">Al pensionamento · ${quando}${eta ? ' · ' + eta + ' anni' : ''}</div>
-    <div class="big">${P_ ? pq1(Rr.pctStip) + ' <span style="font-size:17px;font-weight:600;color:var(--hero-2)">dello stipendio</span>' : eur(X.s.v, 0)}</div>
-    <div class="when">${P_ ? 'Rendita lorda in percentuale dello stipendio lordo di oggi' : 'Capitale stimato, in euro di oggi'}</div>
+    <div class="big">${eurF(X.s.v, 0)}</div>
+    <div class="when">Capitale stimato, in euro di oggi</div>
     <div class="grid2" style="margin-top:14px">
-      <div><div class="kv-l" style="color:var(--hero-2)">Rendita lorda</div><div class="kv-v" style="color:#fff">${P_ ? pq1(Rr.pctStip) + ' stip.' : eur(Rr.lordo / 12, 0) + ' /mese'}</div><div class="kv-l" style="color:var(--hero-2)">${P_ ? '' : eur(Rr.lordo, 0) + ' l\'anno'}</div></div>
-      <div><div class="kv-l" style="color:var(--hero-2)">Rendita netta stimata</div><div class="kv-v" style="color:var(--mint)">${P_ ? pq1(Rr.pctStipN) + ' stip.' : eur(Rr.netto / 12, 0) + ' /mese'}</div><div class="kv-l" style="color:var(--hero-2)">${P_ ? 'imposta ' + pctPlain(Rr.aliq, 1) : eur(Rr.netto, 0) + ' l\'anno'}</div></div>
+      ${rendita('Rendita lorda', Rr.lordo, '#fff')}
+      ${rendita('Rendita netta stimata', Rr.netto, 'var(--mint)')}
     </div>
-    <div class="when" style="margin-top:8px">${P_ ? '' : 'Netto: imposta sulla prestazione del ' + pctPlain(Rr.aliq, 1) + ' (' + Rr.anniAdes + ' anni di adesione), solo su contributi e TFR. '}</div>
-    ${Rr.pctStip != null && !P_ ? `<div class="when" style="margin-top:10px">La rendita lorda vale il ${pq1(Rr.pctStip)} del tuo stipendio lordo di oggi (12 mensilità).</div>` : ''}
+    <div class="when" style="margin-top:8px">Netto: imposta sulla prestazione del ${pctPlain(Rr.aliq, 1)} (${Rr.anniAdes} anni di adesione), solo su contributi e TFR.</div>
+    ${Rr.pctStip != null ? `<div class="when" style="margin-top:10px">La rendita lorda vale il ${pq1(Rr.pctStip)} del tuo stipendio lordo di oggi (12 mensilità).</div>` : ''}
   </section>`;
-  const yp = (x) => P_ ? pq(x / X.vers) : eur(x, 0);
+  const yp = (x) => eurF(x, 0);
   html += `<section class="card" aria-label="Da dove arriva">
     <div class="sub">Da oggi alla pensione · ${num(X.anni, 1)} anni</div>
-    <div class="yrow"><span>Versato da oggi</span><span class="num" style="font-weight:600">${P_ ? '100%' : eur(X.vers, 0)}</span></div>
+    <div class="yrow"><span>Versato da oggi</span><span class="num" style="font-weight:600">${eurF(X.vers, 0)}</span></div>
     <div class="yrow"><span><span class="dot" style="background:var(--vol)"></span>Tuo contributo</span><span class="num">${yp(X.s.sv)}</span></div>
     <div class="yrow"><span><span class="dot" style="background:var(--az)"></span>Azienda</span><span class="num">${yp(X.s.sa)}</span></div>
     <div class="yrow"><span><span class="dot" style="background:var(--tfr)"></span>TFR</span><span class="num">${yp(X.s.st)}</span></div>
-    <div class="yrow"><span>Guadagno del fondo</span><span class="num" style="color:var(--ok);font-weight:600">${P_ ? pct(X.guadagno / (B.own + X.vers), 0) + ' sul versato' : eurS(X.guadagno, 0)}</span></div>
-    <div class="yrow"><span>Posizione di oggi</span><span class="num">${P_ ? '—' : eur(B.own, 0)}</span></div>
-    ${pr ? `<div class="ynote ${Math.abs(X.s.v / pr.posizioneFinale - 1) < 0.05 ? 'ok' : 'warn'}">Previsione ufficiale del prospetto ${pr.anno || ''}: ${P_ ? 'la stima di Quota è ' + pct(X.s.v / pr.posizioneFinale - 1, 1) + ' rispetto al fondo.' : eur(pr.posizioneFinale, 0) + ', rendita lorda ' + eur(pr.renditaAnnua, 0) + ' l\'anno. Quota stima ' + eurS(X.s.v - pr.posizioneFinale, 0) + '.'} La differenza viene dai dati più recenti e dalle ipotesi di calcolo.</div>`
+    <div class="yrow"><span>Guadagno del fondo</span><span class="num" style="color:var(--ok);font-weight:600">${P_ ? MASK : eurFS(X.guadagno, 0)}</span></div>
+    <div class="yrow"><span>Posizione di oggi</span><span class="num">${P_ ? MASK : eurF(B.own, 0)}</span></div>
+    ${pr ? `<div class="ynote ${Math.abs(X.s.v / pr.posizioneFinale - 1) < 0.05 ? 'ok' : 'warn'}">Previsione ufficiale del prospetto ${pr.anno || ''}: ${eurF(pr.posizioneFinale, 0) + ', rendita lorda ' + eurF(pr.renditaAnnua, 0) + ' l\'anno. Quota stima ' + eurFS(X.s.v - pr.posizioneFinale, 0) + '.'} La differenza viene dai dati più recenti e dalle ipotesi di calcolo.</div>`
       : `<div class="ynote warn">Rendita calcolata con un coefficiente generico. Aggiungi il prospetto annuale del fondo per la data e la rendita ufficiali.${P_ ? '' : ' <button type="button" class="chipbtn warn" style="margin-top:8px;background:var(--card)" data-act="sheet" data-v="pensdati">Aggiungi il prospetto</button>'}</div>`}
   </section>`;
 
@@ -1345,9 +1441,9 @@ function viewPensione(M) {
   </section>`;
   const ord = S.slice().sort((a, b) => b.v - a.v), top = ord[0].v;
   html += `<h2 class="sec">Al pensionamento</h2><section class="card" aria-label="Classifica">
-    ${ord.map((s) => { const d = s.v - cur.v; return `<div class="pbar"><div class="row-top"><span style="${s.cur ? 'font-weight:700' : ''}">${esc(s.nome)}${s.cur ? ' · la tua scelta' : ''}</span><span class="num" style="font-weight:600">${P_ ? (s.cur ? '—' : pct(s.v / cur.v - 1, 0)) : eur(s.v, 0)}</span></div>
+    ${ord.map((s) => { const d = s.v - cur.v; return `<div class="pbar"><div class="row-top"><span style="${s.cur ? 'font-weight:700' : ''}">${esc(s.nome)}${s.cur ? ' · la tua scelta' : ''}</span><span class="num" style="font-weight:600">${eurF(s.v, 0)}</span></div>
       <div class="pbar-track"><div style="width:${(s.v / top * 100).toFixed(1)}%;background:${s.cur ? 'var(--accent)' : s.id === 'tfr' || s.id === 'pip' || s.id === 'aperti' ? 'var(--alt)' : 'var(--tfr)'}"></div></div>
-      ${!s.cur && !P_ ? `<div class="sub" style="margin-top:3px;color:var(${d >= 0 ? '--ok' : '--bad'})">${eurS(d, 0)} rispetto alla tua scelta</div>` : ''}</div>`; }).join('')}
+      ${!s.cur ? `<div class="sub" style="margin-top:3px;color:var(${d >= 0 ? '--ok' : '--bad'})">${eurFS(d, 0)} rispetto alla tua scelta</div>` : ''}</div>`; }).join('')}
     <div class="sub" style="margin-top:6px">Fondo aperto e PIP: costi medi COVIP a parità di investimento, senza il contributo dell'azienda. TFR in azienda: rivalutazione di legge; il tuo contributo resta in busta paga, senza rendimento.</div>
   </section>
   <section class="card banner warn" style="padding:14px 18px;border-radius:var(--radius)"><b>Rendimento e rischio vanno insieme.</b> I comparti con più azioni rendono di più in media ma possono perdere di più negli anni negativi, e conta soprattutto negli anni vicini alla pensione. Questo confronto non è un consiglio sulla scelta del comparto.</section>`;
@@ -1371,7 +1467,7 @@ function viewPensione(M) {
 function refreshPens() {
   const out = $('#pens-calc'); if (!out || !data) return;
   const M = model(), B = pensBase(M); if (!B) return;
-  const P_ = priv(), p = ui.pens, base = pensRun(B, { vol: null, g: null, ex: 0, sc: 0 });
+  const p = ui.pens, base = pensRun(B, { vol: null, g: null, ex: 0, sc: 0 });
   const X = pensRun(B, p);
   const vDef = Math.round(B.volPct * 200) / 2, volShown = p.vol == null ? vDef : p.vol;
   const set = (id, t) => { const e = $(id); if (e) e.textContent = t; };
@@ -1381,10 +1477,10 @@ function refreshPens() {
   set('#p-sc-o', 'Rendimento reale netto ' + pctPlain(B.rCur + p.sc * B.R.scartoScenari, 2) + ' l\'anno · comparto ' + B.comp + (p.vol === 0 ? ' · senza contributo tuo l\'azienda non versa' : ''));
   const d = X.s.v - base.s.v, dn = X.rend.netto - base.rend.netto;
   out.innerHTML = `<div class="grid2">
-      <div><div class="kv-l">Capitale</div><div class="kv-v">${P_ ? pct(X.s.v / base.s.v - 1, 0) : eur(X.s.v, 0)}</div><div class="kv-l" style="color:var(${d >= 0 ? '--ok' : '--bad'})">${P_ ? 'rispetto alla previsione' : eurS(d, 0)}</div></div>
-      <div><div class="kv-l">Rendita netta al mese</div><div class="kv-v">${P_ ? pctPlain(X.rend.pctStipN || 0, 0) + ' stip.' : eur(X.rend.netto / 12, 0)}</div><div class="kv-l" style="color:var(${dn >= 0 ? '--ok' : '--bad'})">${P_ ? '' : eurS(dn / 12, 0) + ' al mese'}</div></div>
+      <div><div class="kv-l">Capitale</div><div class="kv-v">${eurF(X.s.v, 0)}</div><div class="kv-l" style="color:var(${d >= 0 ? '--ok' : '--bad'})">${eurFS(d, 0)}</div></div>
+      <div><div class="kv-l">Rendita netta l'anno</div><div class="kv-v">${eurF(X.rend.netto, 0)}</div><div class="kv-l">${eurF(X.rend.netto / 12, 0)} al mese</div><div class="kv-l" style="color:var(${dn >= 0 ? '--ok' : '--bad'})">${eurFS(dn, 0)} l'anno</div></div>
     </div>
-    ${P_ ? '' : `<div class="sub" style="margin-top:8px">Lorda ${eur(X.rend.lordo, 0)} l'anno · netta ${eur(X.rend.netto, 0)} l'anno (imposta ${pctPlain(X.rend.aliq, 1)}) · di tasca tua ${eur(X.s.sv, 0)} da oggi</div>`}`;
+    <div class="sub" style="margin-top:8px">Lorda ${eurF(X.rend.lordo, 0)} l'anno (${eurF(X.rend.lordo / 12, 0)} al mese) · imposta ${pctPlain(X.rend.aliq, 1)} · di tasca tua ${eurF(X.s.sv, 0)} da oggi</div>`;
 }
 
 /* Prospetto annuale del fondo (PDF): estrae i dati della previsione e quelli per la verifica dell'anno.
@@ -1558,6 +1654,18 @@ function renderSheet() {
       <div class="field"><label for="s-rd">Rendita annua €</label><input id="s-rd" inputmode="decimal" data-s="rendita" value="${esc(s.rendita || '')}" placeholder="0,00"></div></section>
       <div class="note">Nella prima pagina del prospetto, "Quanto potresti ricevere quando andrai in pensione". Il PDF viene solo letto, mai salvato. Se lo lasci vuoto, la previsione usa la data di nascita e un coefficiente di rendita generico.</div>
       ${data.prospetto ? '<section class="card flush"><button type="button" class="listlink" data-act="prosp-del" style="color:var(--bad)">Togli i dati del prospetto</button></section>' : ''}`;
+  } else if (s.type === 'volontario') {
+    const opt = (v, l) => `<button type="button" data-act="vv-ded" data-v="${v}" aria-pressed="${s.dedotto === (v === '1')}">${l}</button>`;
+    body = head(s.id ? 'Versamento volontario' : 'Nuovo versamento') + `<section class="card flush">
+      <div class="field"><label for="s-vvd">Data del versamento</label><input id="s-vvd" type="date" data-s="data" value="${esc(s.data || '')}"></div>
+      <div class="field"><label for="s-vvi">Importo €</label><input id="s-vvi" inputmode="decimal" autocomplete="off" data-s="importo" value="${esc(s.importo || '')}" placeholder="0,00"></div>
+      <div class="field"><label for="s-vvn">Note</label><input id="s-vvn" autocomplete="off" maxlength="200" data-s="nota" value="${esc(s.nota || '')}" placeholder="Facoltative"></div></section>
+      <h3 class="group">Nella dichiarazione dei redditi</h3>
+      <div class="seg" role="group" aria-label="Deduzione">${opt('1', 'Dedotto')}${opt('0', 'Non dedotto')}</div>
+      <div class="note">${s.dedotto
+        ? 'Dedotto: lo porti in deduzione nella dichiarazione e conta nello spazio deducibile dell\'anno.'
+        : 'Non dedotto: va comunicato al fondo entro il 31 dicembre dell\'anno dopo, così quando lo ritiri non viene tassato. In Anni compare un promemoria finché non lo segni come comunicato.'}</div>
+      ${s.id ? '<section class="card flush"><button type="button" class="listlink" data-act="vv-del" style="color:var(--bad)">Elimina il versamento</button></section>' : ''}`;
   } else if (s.type === 'ref') {
     body = head('Costi di confronto') + `<div class="note" style="margin-top:12px">Usa l'ISC a <b>10 anni</b>. Lo trovi così:</div>
       <div class="details" style="margin:8px 20px 0"><div><b>Fondi aperti e PIP</b>: relazione annuale COVIP (esce a giugno), tabella "Indicatore sintetico dei costi", colonna 10 anni, valori medi.</div>
@@ -1572,9 +1680,14 @@ function renderSheet() {
   root.innerHTML = `<div class="scrim" data-act="sheet-scrim"><div class="sheet" role="dialog" aria-modal="true">${body}<div id="sheet-err"></div></div></div>`;
 }
 
-function openSheet(type) {
+function openSheet(type, id) {
   const R = effRef();
-  if (type === 'ref') {
+  if (type === 'volontario') {
+    const x = id ? data.versamentiVolontari.find((v) => v.id === id) : null;
+    const d = new Date(), oggi = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    ui.sheet = x ? { type, id: x.id, data: x.data, importo: num(x.importo, 2), nota: x.nota || '', dedotto: x.dedotto, comunicato: !!x.comunicato }
+      : { type, id: null, data: oggi, importo: '', nota: '', dedotto: true, comunicato: false };
+  } else if (type === 'ref') {
     const s = { type, fpa: num(R.isc.fondiAperti * 100, 2), pip: num(R.isc.pip * 100, 2) };
     for (const c in R.fondo.iscComparti) s['c-' + c] = num(R.fondo.iscComparti[c] * 100, 2);
     ui.sheet = s;
@@ -1613,6 +1726,14 @@ function saveSheet() {
     if (!nas && !qualcosa) return sheetError('Inserisci il mese di nascita oppure i dati del prospetto.');
     data.pensione = { nascita: nas || null };
     data.prospetto = qualcosa ? { anno, dataPensione: dp, posizioneFinale: pf, renditaAnnua: rd, adesione: s.adesione || null, fonte: s.fonte === 'pdf' ? 'pdf' : 'mano', ...(s.verifica && s.fonte === 'pdf' ? { verifica: s.verifica } : {}) } : null;
+  } else if (s.type === 'volontario') {
+    const dt = String(s.data || '').trim(), imp = parseIt(s.importo);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dt) || dt < '2000-01-01') return sheetError('Scegli la data del versamento.');
+    if (!(imp > 0) || imp > 100000) return sheetError('Inserisci l\'importo versato (es. 500,00).');
+    const r = { id: s.id || 'vv' + Date.now().toString(36), data: dt, importo: Math.round(imp * 100) / 100, dedotto: !!s.dedotto };
+    if (!r.dedotto && s.comunicato) r.comunicato = true;
+    const nota = String(s.nota || '').trim().slice(0, 200); if (nota) r.nota = nota;
+    data.versamentiVolontari = data.versamentiVolontari.filter((v) => v.id !== r.id).concat([r]).sort((a, b) => a.data.localeCompare(b.data));
   } else if (s.type === 'ref') {
     const ok = (v) => v >= 0.05 && v <= 5;
     const fpa = parseIt(s.fpa), pip = parseIt(s.pip);
@@ -1689,7 +1810,7 @@ async function exportCSV() {
 }
 
 /* ======================= Eventi ======================= */
-const PRIV_BLOCKED = ['prosp-del', 'aliq-auto', 'ins-open', 'ins-month', 'ins-save', 'sheet', 'sheet-save', 'export', 'export-csv', 'wipe', 'ref-reset', 'del-comparto', 'del-aliquota', 'start-empty'];
+const PRIV_BLOCKED = ['vv-new', 'vv-edit', 'vv-del', 'vv-ded', 'vv-com', 'prosp-del', 'aliq-auto', 'ins-open', 'ins-month', 'ins-save', 'sheet', 'sheet-save', 'export', 'export-csv', 'wipe', 'ref-reset', 'del-comparto', 'del-aliquota', 'start-empty'];
 let toastTimer = null;
 function toast(msg) {
   let t = $('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
@@ -1730,6 +1851,15 @@ document.addEventListener('click', (ev) => {
     case 'export-csv': exportCSV(); break;
     case 'wipe': if (confirm('Eliminare tutti i dati da questo telefono? Fai prima un backup.')) { localStorage.removeItem(STORE_KEY); data = null; render(); } break;
     case 'sheet': openSheet(v); break;
+    case 'vv-new': openSheet('volontario'); break;
+    case 'vv-edit': openSheet('volontario', v); break;
+    case 'vv-ded': if (ui.sheet) { ui.sheet.dedotto = v === '1'; if (ui.sheet.dedotto) ui.sheet.comunicato = false; renderSheet(); } break;
+    case 'vv-del': if (ui.sheet && confirm('Eliminare questo versamento?')) { data.versamentiVolontari = data.versamentiVolontari.filter((x) => x.id !== ui.sheet.id); persist(); ui.sheet = null; toast('Versamento eliminato'); render(); } break;
+    case 'vv-com': {
+      const y = String(v);
+      for (const x of data.versamentiVolontari) if (!x.dedotto && x.data.slice(0, 4) === y) x.comunicato = true;
+      persist(); toast('Segnato come comunicato al fondo'); render(); break;
+    }
     case 'sheet-close': case 'sheet-scrim': ui.sheet = null; renderSheet(); break;
     case 'sheet-save': saveSheet(); break;
     case 'ref-reset': refUser = null; localStorage.removeItem(REF_USER_KEY); toast('Valori ufficiali ripristinati'); render(); break;
