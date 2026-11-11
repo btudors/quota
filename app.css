@@ -261,3 +261,24 @@ h3.group { margin: 22px 20px 8px; font-size: 13px; font-weight: 600; letter-spac
 .cmp-hi.neg .num { color: var(--warn); }
 .molt { gap: 10px 8px; margin-top: 14px; }
 .molt > div { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* Pulsante della Panoramica a stati: verde aggiornato, arancione manca qualcosa, rosso mancano entrambi */
+.addbtn.ok { background: var(--ok-soft); color: var(--ok); }
+.addbtn.warn { background: var(--warn-soft); color: var(--warn); }
+.addbtn.bad { background: var(--bad-soft); color: var(--bad); }
+
+/* Scheda dell'anno (Resoconto) */
+.yrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 15px; padding: 9px 0; border-bottom: 1px solid var(--sep); }
+.yrow > span:first-child { color: var(--text-2); display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ynote { font-size: 13px; line-height: 1.4; border-radius: 12px; padding: 9px 11px; margin-top: 10px; }
+.ynote.ok { background: var(--ok-soft); color: var(--ok); }
+.ynote.warn { background: var(--warn-soft); color: var(--warn); }
+.ynote.bad { background: var(--bad-soft); color: var(--bad); }
+
+/* Riquadro "cosa manca" della pagina Inserisci */
+.banner.ins-miss { margin: 0 16px 12px; border-radius: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
+.banner.ins-miss .chipbtn { background: var(--card); }
+/* Titolo che si restringe sui telefoni stretti, per lasciare spazio al pulsante a stati */
+.title-row h1 { font-size: clamp(26px, 7.6vw, 34px); }
+.addbtn.ok, .addbtn.warn, .addbtn.bad { padding: 0 14px 0 11px; gap: 5px; }
