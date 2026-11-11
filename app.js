@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -280,6 +280,22 @@ function pendingMonth(M) {
   return { k, needPay, needSnap, done: !needPay && !needSnap, prossima: P.prossima, prossimoMese: keyOf(P.arrivo) };
 }
 
+/* Stato dei dati per il pulsante della Panoramica e il riquadro della pagina Inserisci.
+   Mese in corso: contano busta paga e dati del fondo. Mesi precedenti: contano solo le buste
+   paga (si recuperano sempre); i dati del fondo passati non si possono più recuperare dal sito.
+   livello: 'ok' tutto inserito · 'warn' manca qualcosa · 'bad' mancano entrambi i dati del mese in corso. */
+function statoDati(M) {
+  const pm = pendingMonth(M);
+  const empty = !data.bustePaga.length && !data.valorizzazioni.length;
+  const fine = pm ? pm.k : keyOf(idxOf(todayKey()) - 1);
+  const bustePassate = [];
+  if (!empty) for (let i = idxOf(M.firstKey); i < idxOf(fine); i++) { const k = keyOf(i); if (!M.B[k]) bustePassate.push(k); }
+  let livello = 'ok';
+  if (empty || (pm && pm.needPay && pm.needSnap)) livello = 'bad';
+  else if ((pm && !pm.done) || bustePassate.length) livello = 'warn';
+  return { pm, bustePassate, livello, empty };
+}
+
 function comparison(M) {
   if (!M.last || M.P.length < 2) return null;
   const R = effRef(), D = M.last.i;
@@ -469,10 +485,15 @@ function heroTexts(sel, isLatest, M) {
 
 function viewHome(M) {
   const P_ = priv();
-  const pm = pendingMonth(M);
+  const S = statoDati(M);
+  // Pulsante a stati: verde "Aggiornato" se è tutto inserito, arancione se manca qualcosa,
+  // rosso se mancano sia la busta paga sia i dati del fondo del mese in corso.
+  const addBtn = S.livello === 'ok'
+    ? `<button type="button" class="addbtn ok" data-act="ins-open" aria-label="Dati aggiornati, apri l'inserimento"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span class="lbl">Aggiornato</span></button>`
+    : `<button type="button" class="addbtn ${S.livello}" data-act="ins-open" aria-label="${S.livello === 'bad' ? 'Mancano i dati del mese, inserisci' : 'Mancano alcuni dati, inserisci'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Inserisci</span></button>`;
   let html = `<div class="head"><div class="eyebrow-row"><div class="eyebrow">${esc(data.fondo.nome)}${M.last ? ' · ' + esc(M.last.c) : ''}</div>${privPill()}</div>
     <div class="title-row"><h1>Panoramica</h1><div class="head-actions">
-      ${P_ ? '' : `<button type="button" class="addbtn" data-act="ins-open" aria-label="Inserisci i dati del mese"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Inserisci</span></button>`}
+      ${P_ ? '' : addBtn}
       ${privBtn()}
     </div></div></div>`;
 
@@ -511,30 +532,6 @@ function viewHome(M) {
     </section>`;
   } else {
     html += `<section class="card"><div class="title">Ancora pochi dati</div><div class="sub">Il grafico compare dopo almeno due valori del fondo. Inserisci quote e valore quota dal sito del fondo.</div></section>`;
-  }
-
-  // Promemoria (non in modalità privata: porta all'inserimento dei dati)
-  if (pm && !pm.done && !P_) {
-    const tag = (need) => need ? '<span class="pill warn">Da fare</span>' : '<span class="pill ok">Fatto</span>';
-    html += `<section class="card" aria-label="Promemoria">
-      <div style="display:flex;gap:10px;align-items:center">
-        <span class="icon-badge" style="background:var(--warn-soft);color:var(--warn)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span>
-        <div><div class="title">${monthLabel(pm.k)} da completare</div><div class="sub">Due minuti, una volta al mese</div></div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px;font-size:15px">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Busta paga · imponibile, contributi e TFR</span>${tag(pm.needPay)}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Sito del fondo · quote e valore quota</span>${tag(pm.needSnap)}</div>
-      </div>
-      <div class="btnrow">
-        <button type="button" class="btn primary" data-act="ins-month" data-v="${pm.k}">Inserisci ora</button>
-        ${extLink(LINK_AREA, 'Area riservata', 'btn soft')}
-      </div>
-    </section>`;
-  } else if (pm && !P_) {
-    html += `<section class="card" style="display:flex;gap:12px;align-items:center">
-      <span class="icon-badge" style="background:var(--ok-soft);color:var(--ok)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
-      <div><div class="title">${monthLabel(pm.k)} completato</div><div class="sub">Prossimo promemoria ${dayLabel(pm.prossima)}, con la busta paga di ${prevMonthLabel(pm.prossimoMese, todayKey())}</div></div>
-    </section>`;
   }
 
   const C = comparison(M);
@@ -740,12 +737,11 @@ function viewAnni(M) {
   };
   const tag = (k, label) => P_ ? `<span class="pill warn">${label}</span>` : `<button type="button" class="chipbtn warn" data-act="ins-month" data-v="${k}">${label}</button>`;
 
-  let yt = 0, yv = 0, ya = 0, yf = 0, count = 0; const bars = [], rows = [];
-  const scale = 120 / Math.max(300, ...Object.values(M.months).map((d) => d.tot));
+  let yt = 0, yv = 0, ya = 0, yf = 0, count = 0; const rows = [];
+  const pmK = (pendingMonth(M) || {}).k;
   for (let m = 1; m <= 12; m++) {
     const k = key(Y, m), d = M.months[k], snap = M.P.find((p) => p.k === k);
     if (d) { yt += d.tot; yv += d.vol; ya += d.az; yf += d.tfr; count++; }
-    bars.push(d ? `<div><div class="col"><div style="height:${(d.vol * scale).toFixed(1)}px;background:var(--vol)"></div><div style="height:${(d.az * scale).toFixed(1)}px;background:var(--az)"></div><div style="height:${(d.tfr * scale).toFixed(1)}px;background:var(--tfr)"></div></div></div>` : '<div><div class="empty"></div></div>');
     const beforeStart = k < M.firstKey, future = k >= tk;
     if (d) {
       const edited = data.modifiche && data.modifiche[k];
@@ -754,7 +750,7 @@ function viewAnni(M) {
         ${P_ ? '' : `<div class="row-meta">${d.base == null ? 'Imponibile non registrato' + (d.az ? ' · azienda inserita a mano' : '') : 'Imponibile ' + eur(d.base)}</div>`}
         <div class="row-meta" style="margin-top:1px">${parts(d)}</div>
         ${d.stimato && d.base != null ? '<div class="row-meta" style="color:var(--muted)">Contributi stimati dalle aliquote</div>' : ''}
-        ${snap ? `<div class="row-meta ok-t">${snapLine(snap)}</div>` : (M.P.length && k > M.P[0].k ? '<div class="row-meta warn-t">Valore quota non registrato</div>' : '')}
+        ${snap ? `<div class="row-meta ok-t">${snapLine(snap)}</div>` : (M.P.length && k > M.P[0].k ? (k === pmK ? '<div class="row-meta warn-t">Valore quota da inserire</div>' : '<div class="row-meta">Valore quota non registrato</div>') : '')}
         ${P_ ? '' : `<div class="row-actions"><span style="font-size:12px;font-weight:600;color:var(--info)">${edited ? 'Modificato da te' : ''}</span><button type="button" class="chipbtn" data-act="ins-month" data-v="${k}" aria-label="Modifica ${MESI[m - 1]} ${Y}">Modifica</button></div>`}
       </div>`);
     } else if (snap) {
@@ -775,17 +771,41 @@ function viewAnni(M) {
     for (let m = 1; m <= 12; m++) { const d = M.months[key(Y - 1, m)]; if (d) { pt += d.tot; pc++; } }
     bigY = count && pc ? `${pct((yt / count) / (pt / pc) - 1)} <span class="big-sub">al mese rispetto al ${Y - 1}</span>` : `${count ? 'Primo anno' : '—'}`;
   }
+  // Scheda dell'anno: versato per busta paga (come la CU) e situazione del fondo a fine periodo.
   const yp = (x) => P_ ? pq(x / yt) : eur(x);
-  html += `<section class="card" aria-label="Versato nell'anno">
+  const ysnap = M.P.filter((p) => parseKey(p.k).y === Y);
+  const yr = (l, v, extra = '') => `<div class="yrow"><span>${l}</span><span class="num"${extra}>${v}</span></div>`;
+  const dotL = (c, l) => `<span class="dot" style="background:var(--${c})"></span>${l}`;
+  let fondoRows = '', comps = [];
+  if (ysnap.length) {
+    const endS = ysnap[ysnap.length - 1];
+    const prev = M.P.filter((p) => parseKey(p.k).y < Y).pop();
+    const endR = endS.v - endS.e, prevR = prev ? prev.v - prev.e : 0;
+    comps = [...new Set(ysnap.map((p) => p.c))];
+    // Variazione del valore quota nell'anno, solo dentro lo stesso comparto
+    const vq0 = prev && prev.c === endS.c ? prev.vq : (ysnap.find((p) => p.c === endS.c) || endS).vq;
+    const ok = ' style="color:var(--ok);font-weight:600"';
+    fondoRows = P_
+      ? yr('Valore quota nell\'anno', endS.vq !== vq0 ? pct(endS.vq / vq0 - 1) : '—', ok) + yr('Rendimento totale', pct(endR / endS.e) + ' sul versato', ok)
+      : yr(prev ? 'Guadagno nell\'anno' : 'Guadagno dall\'adesione', eurS(endR - prevR), ok)
+        + yr('Rendimento totale', eurS(endR) + ' · ' + pct(endR / endS.e), ok)
+        + yr('Posizione al ' + dateLabel(endS.k), eur(endS.v), ' style="font-weight:700"');
+  }
+  // Note: lettura dalle buste paga e stato degli accrediti dei trimestri
+  const notes = [];
+  const qs = [1, 2, 3, 4].map((q) => quarterInfo(M, Y, q));
+  const stim = Object.keys(M.months).filter((k) => parseKey(k).y === Y && M.months[k].stimato).length;
+  if (count && !stim) notes.push(['ok', 'Contributi letti dalle buste paga ' + Y + ': da confrontare con la tua CU.']);
+  if (qs.some((r) => r.st === 'diff')) notes.push(['bad', 'Qualche trimestre non torna con quanto accreditato dal fondo: trovi il dettaglio in Trimestri.']);
+  else if (qs[3].st === 'attesa') notes.push(['warn', 'Le buste di ott – dic' + (P_ ? '' : ' (' + eur(qs[3].amt) + ')') + ' arrivano al fondo a gennaio ' + (Y + 1) + ': il controllo è in Trimestri.']);
+  html += `<section class="card" aria-label="L'anno ${Y}">
     <div class="sub">Versato nell'anno · ${count} ${count === 1 ? 'mese registrato' : 'mesi registrati'}</div>
-    <div class="num" style="font-size:32px;font-weight:700;letter-spacing:-.02em">${bigY}</div>
-    <div class="bars">${bars.join('')}</div>
-    <div class="bars-lab">${INIZ.map((l) => `<span>${l}</span>`).join('')}</div>
-    <div class="grid3">
-      <div><div class="kv-l"><span class="dot" style="background:var(--tfr)"></span>TFR</div><div class="kv-v">${yp(yf)}</div></div>
-      <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${yp(ya)}</div></div>
-      <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Volontario</div><div class="kv-v">${yp(yv)}</div></div>
-    </div></section>`;
+    <div class="num" style="font-size:32px;font-weight:700;letter-spacing:-.02em;margin:2px 0 6px">${bigY}</div>
+    ${yr(dotL('vol', 'Tuo contributo'), yp(yv))}${yr(dotL('az', 'Azienda'), yp(ya))}${yr(dotL('tfr', 'TFR'), yp(yf))}
+    ${fondoRows}
+    ${comps.length ? `<div class="sub" style="margin-top:10px">${comps.length > 1 ? 'Comparti nell\'anno: ' + comps.map(esc).join(' → ') : 'Comparto ' + esc(comps[0])}</div>` : ''}
+    ${notes.map(([c, t]) => `<div class="ynote ${c}">${t}</div>`).join('')}
+  </section>`;
 
   const D = deducibile(M, Y);
   if (D && D.mesi) {
@@ -804,27 +824,6 @@ function viewAnni(M) {
         <div><div class="kv-l">${lab3}</div><div class="kv-v">${val3}</div></div>
       </div>
       <div class="sub" style="margin-top:12px;color:var(--text-2)">${D.stimati ? D.stimati + (D.stimati === 1 ? ' mese con contributi stimati' : ' mesi con contributi stimati') + ' dalle aliquote, segnati qui sotto. ' : 'Contributi letti dalle buste paga. '}Il TFR versato al fondo${P_ ? '' : ' (' + eur(yf) + ')'} non rientra nel limite. Per conferma, confronta il totale con la Certificazione Unica.</div>
-    </section>`;
-  }
-
-  const ysnap = M.P.filter((p) => parseKey(p.k).y === Y);
-  if (ysnap.length) {
-    const endS = ysnap[ysnap.length - 1];
-    const prev = M.P.filter((p) => parseKey(p.k).y < Y).pop();
-    const endR = endS.v - endS.e, prevR = prev ? prev.v - prev.e : 0;
-    const comps = [...new Set(ysnap.map((p) => p.c))];
-    // Variazione del valore quota nell'anno, solo dentro lo stesso comparto
-    const vq0 = prev && prev.c === endS.c ? prev.vq : (ysnap.find((p) => p.c === endS.c) || endS).vq;
-    html += `<section class="hero" style="margin-top:16px;border-radius:22px;padding:18px" aria-label="Situazione a fine periodo">
-      <div class="lbl" style="font-size:13px">${P_ ? 'Al ' : 'Valore al '}${dateLabel(endS.k)}</div>
-      <div class="num" style="font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:2px">${P_ ? pct(endR / endS.e) + ' <span style="font-size:15px;font-weight:600;color:var(--hero-2)">sul versato</span>' : eur(endS.v)}</div>
-      <div class="grid2">
-        <div><div class="kv-l" style="color:var(--hero-2)">Rendimento totale</div><div class="kv-v" style="color:var(--mint)">${P_ ? pct(endR / endS.e) : eurS(endR) + ' · ' + pct(endR / endS.e)}</div></div>
-        ${P_
-          ? `<div><div class="kv-l" style="color:var(--hero-2)">Valore quota nell'anno</div><div class="kv-v" style="color:var(--mint)">${endS.vq !== vq0 ? pct(endS.vq / vq0 - 1) : '—'}</div></div>`
-          : `<div><div class="kv-l" style="color:var(--hero-2)">${prev ? 'Maturato nell\'anno' : 'Maturato dall\'adesione'}</div><div class="kv-v" style="color:var(--mint)">${eurS(endR - prevR)}</div></div>`}
-      </div>
-      <div class="when" style="margin-top:10px">${comps.length > 1 ? 'Comparti nell\'anno: ' + comps.map(esc).join(' → ') : 'Comparto ' + esc(comps[0])}</div>
     </section>`;
   }
 
@@ -851,9 +850,35 @@ function insDefaults(k) {
     az: b && b.azienda != null ? inVal(b.azienda, 2) : '', vol: b && b.volontario != null ? inVal(b.volontario, 2) : '', q: v ? inVal(v.quote, 3) : '', vq: v ? inVal(v.valoreQuota, 3) : '', e: v ? inVal(v.totaleVersato, 2) : '', existed: !!(b || v), err: null };
 }
 
+/* Riquadro in cima alla pagina Inserisci: cosa manca nel mese scelto e quali buste paga
+   dei mesi precedenti sono ancora da inserire. Per i mesi passati i dati del fondo non si
+   segnalano: dal sito non si possono più recuperare. */
+function insMancanti(M, S, k) {
+  const pm = S.pm, isCur = pm && k === pm.k, past = pm ? k < pm.k : true;
+  const needPay = !M.B[k], needSnap = isCur && !M.P.find((p) => p.k === k);
+  const out = [];
+  if (isCur || past) {
+    const manca = [];
+    if (needPay) manca.push('<b>busta paga</b> (imponibile, contributi e TFR)');
+    if (needSnap) manca.push('<b>dati del fondo</b> (quote e valore quota)');
+    if (manca.length) {
+      const liv = manca.length === 2 ? 'bad' : 'warn';
+      out.push(`<div class="banner ${liv} ins-miss">Manca: ${manca.join(' e ')}.${needSnap ? ' Prendili dal sito prima che il valore del mese venga sostituito: ' + extLink(LINK_AREA, 'Area riservata', '', 'font-weight:600;color:inherit') : ''}</div>`);
+    } else if (isCur) out.push('<div class="banner ok ins-miss">Mese completo: busta paga e dati del fondo ci sono. Puoi correggerli e salvare.</div>');
+  }
+  const altre = S.bustePassate.filter((x) => x !== k);
+  if (altre.length) {
+    const max = 6, shown = altre.slice(-max).reverse();
+    out.push(`<div class="banner warn ins-miss">${altre.length === 1 ? 'Manca anche la busta paga di un mese precedente' : 'Mancano anche le buste paga di ' + altre.length + ' mesi precedenti'}:
+      <div class="chips">${shown.map((x) => `<button type="button" class="chipbtn warn" data-act="ins-month" data-v="${x}">${monthLabel(x)}</button>`).join('')}${altre.length > max ? `<span class="sub">e altri ${altre.length - max}</span>` : ''}</div></div>`);
+  }
+  return out.join('');
+}
+
 function viewInserisci(M) {
-  const pm = pendingMonth(M);
-  if (!ui.insMonth) ui.insMonth = pm ? pm.k : keyOf(idxOf(todayKey()) - 1);
+  const S = statoDati(M), pm = S.pm;
+  // Mese proposto: quello in corso se manca qualcosa, altrimenti l'ultima busta paga passata mancante.
+  if (!ui.insMonth) ui.insMonth = pm && !pm.done ? pm.k : S.bustePassate.length ? S.bustePassate[S.bustePassate.length - 1] : pm ? pm.k : keyOf(idxOf(todayKey()) - 1);
   if (!ui.form || ui.form.k !== ui.insMonth) ui.form = insDefaults(ui.insMonth);
   const f = ui.form, k = f.k;
   // mesi selezionabili: dall'inizio dei dati fino al mese corrente
@@ -862,6 +887,7 @@ function viewInserisci(M) {
   const ph = (val, d) => val != null ? num(val, d) : '';
   const lastB = data.bustePaga.filter((b) => b.mese < k).pop();
   return `<div class="head"><div class="eyebrow">${f.existed ? 'Modifica' : 'Inserimento mensile'}</div><h1>${monthLabel(k)}</h1></div>
+    ${insMancanti(M, S, k)}
     <section class="card flush" style="margin-top:0">
       <div class="field"><label for="i-mese">Mese</label><select id="i-mese" data-act="ins-select">${opts.map((o) => `<option value="${o}" ${o === k ? 'selected' : ''}>${monthLabel(o)}</option>`).join('')}</select></div>
     </section>
