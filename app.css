@@ -298,6 +298,7 @@ h3.group { margin: 22px 20px 8px; font-size: 13px; font-weight: 600; letter-spac
 .pslider label { font-size: 15px; color: var(--text-2); }
 .pslider output { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
 .pslider input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.sim-big { font-size: 34px; font-weight: 700; letter-spacing: -.02em; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
 .sw { display: inline-block; width: 16px; vertical-align: middle; margin-right: 5px; }
 
 /* ===== Introduzione e guida (guida.js) ===== */
