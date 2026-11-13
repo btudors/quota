@@ -1,7 +1,7 @@
 {
   "formato": "quota-riferimenti",
-  "versione": "2026-11-11.2",
-  "aggiornato": "2026-11-11",
+  "versione": "2026-11-12",
+  "aggiornato": "2026-11-12",
   "deducibilita": {
     "fonte": "D.Lgs. 252/2005 art. 8 c. 4, come modificato dalla Legge 199/2025 (Bilancio 2026)",
     "limiti": {
@@ -61,10 +61,10 @@
   },
   "fondo": {
     "nome": "Previdenza Cooperativa",
-    "fonte": "Previdenza Cooperativa, scheda costi: ISC a 10 anni",
+    "fonte": "Previdenza Cooperativa, scheda costi (in vigore dal 31/10/2026): ISC a 10 anni",
     "iscComparti": {
       "Sicuro": 0.0067,
-      "Bilanciato": 0.0038,
+      "Bilanciato": 0.003,
       "Dinamico": 0.0027
     },
     "comparti": {
@@ -106,7 +106,7 @@
       "Bilanciato": {
         "categoria": "Obbligazionario misto",
         "livello": 2,
-        "orizzonte": "Medio, tra 5 e 15 anni dalla pensione",
+        "orizzonte": "Medio-medio/lungo, tra 5 e 15 anni dalla pensione",
         "garanzia": null,
         "avvio": "2020-01-02",
         "patrimonio": 1673825673,
