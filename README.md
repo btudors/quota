@@ -38,6 +38,16 @@ Per un modello nuovo: copia il profilo esistente in `busta-profili.js`, cambia `
 ## Spazio deducibile
 In Panoramica la card **Spazio deducibile** somma contributo volontario e contributo azienda dell'anno (per mese di competenza della busta paga; il TFR non conta) e li confronta con il limite di legge. Il limite è in `data/riferimenti.json` › `deducibilita.limiti` (chiave = anno da cui vale): 5.164,57 € fino al 2025, 5.300 € dal 2026. Da metà novembre la card ricorda quanto si può ancora versare entro il 31 dicembre. Il dettaglio per anno è in Anni › Deducibilità.
 
+## Simula il tuo contributo
+Pulsante nella card **Spazio deducibile** (e in Anni › Deducibilità, per l'anno in corso). Foglio con:
+- **Anno**: quest'anno (se restano almeno 3 buste da cambiare) o l'anno prossimo; **Nuova percentuale da**: il mese da cui vale il cambio (non prima del mese prossimo né di una busta già registrata: il cambio vale dalla busta del mese dopo la consegna del modulo all'azienda).
+- **Per arrivare al limite**: la percentuale dell'imponibile che riempie lo spazio deducibile dell'anno, con il tasto per provarla.
+- **Cursore** 0–20% (passi di 0,1): contributi tuo e azienda dell'anno, spazio che resta o parte oltre il limite, contributo in busta, IRPEF in meno, netto in busta al mese (anche rispetto alla percentuale di oggi), IRPEF risparmiata nell'anno.
+- **Effetto sulla pensione**: apre Pensione › E se… con la stessa percentuale (il cursore della pagina Pensione ora arriva al 20%).
+- Link al modulo del fondo per cambiare la percentuale; versamento volontario per l'anno in corso.
+
+Calcolo (`simCalc` in `app.js`): imponibile = media delle ultime 12 buste con imponibile, **12 mensilità** (tredicesima e quattordicesima non hanno contributi). Nell'anno: mesi registrati con i valori reali, mesi mancanti prima del cambio con le aliquote in vigore, dal mese del cambio azienda all'aliquota in vigore (zero se il tuo è 0%) e tuo alla percentuale scelta; versamenti fuori busta dedotti compresi. La deduzione conta prima il contributo dell'azienda; IRPEF con l'aliquota dello scaglione di Impostazioni › Tasse. In modalità privata il foglio resta disponibile con le sole percentuali (del limite e dell'imponibile).
+
 ## Versamenti volontari fuori busta
 Pulsante **+ Aggiungi versamento volontario** nella card Spazio deducibile e in Anni › Deducibilità: data, importo, note e **Dedotto / Non dedotto**. In Anni il versamento compare tra i mesi, alla sua data (verde se dedotto, rosso se no). I dedotti contano nello spazio deducibile, i non dedotti no. Finché un versamento non dedotto non è segnato come comunicato, in cima ad Anni c'è un avviso con la scadenza per comunicarlo al fondo (31 dicembre dell'anno dopo, D.Lgs. 252/2005 art. 8 c. 4). Nei trimestri, un versamento fatto tra due valori del fondo viene sommato all'accredito atteso. Contano anche in "E se non avessi aderito?" e in "Ogni 1 € di tasca tua"; restano fuori dalle proiezioni della pagina Pensione (sono una tantum). Salvati nel backup.
 

@@ -4,7 +4,7 @@
 'use strict';
 
 /* ======================= Costanti e utilità ======================= */
-const APP_VERSION = '1.9.1';
+const APP_VERSION = '1.10.0';
 const DISCLAIMER = 'Progetto personale e indipendente, non affiliato a Previdenza Cooperativa né ad altri fondi. Le stime non costituiscono consulenza finanziaria.';
 const STORE_KEY = 'quota.dati.v1';
 const PREF_KEY = 'quota.pref.v1';
@@ -460,7 +460,7 @@ function render() {
   if (!data) { tab.hidden = true; app.innerHTML = viewWelcome(); renderGuida(); return; }
   tab.hidden = false;
   if (priv() && !PRIV_TABS.includes(ui.tab)) ui.tab = 'home';
-  if (priv() && !(ui.sheet && ui.sheet.type === 'compinfo')) ui.sheet = null;
+  if (priv() && !(ui.sheet && ['compinfo', 'simvol'].includes(ui.sheet.type))) ui.sheet = null; // fogli con soli dati pubblici o percentuali
   document.body.classList.toggle('privata', priv());
   const M = model();
   const views = { home: viewHome, anni: viewAnni, inserisci: viewInserisci, pensione: viewPensione, impostazioni: viewImpostazioni };
@@ -845,9 +845,135 @@ function cardDeducibile(M) {
     </div>
     ${banner}
     <div class="sub" style="margin-top:12px;color:var(--text-2)">${note.map(esc).join(' ')}</div>
-    ${P_ ? '' : '<button type="button" class="linkbtn" data-act="vv-new">+ Aggiungi versamento volontario</button>'}
-    <button type="button" class="linkbtn" data-act="go-anni" data-v="${D.y}"${P_ ? '' : ' style="margin-top:0"'}>Dettaglio nel resoconto ${D.y}</button>
+    <button type="button" class="linkbtn" data-act="sim-open">Simula il tuo contributo</button>
+    ${P_ ? '' : '<button type="button" class="linkbtn" data-act="vv-new" style="margin-top:0">+ Aggiungi versamento volontario</button>'}
+    <button type="button" class="linkbtn" data-act="go-anni" data-v="${D.y}" style="margin-top:0">Dettaglio nel resoconto ${D.y}</button>
   </section>`;
+}
+
+/* ---------- Simulatore del contributo volontario ----------
+   Che percentuale dell'imponibile servirebbe per arrivare al limite di deducibilità, e cosa cambia
+   con percentuali diverse. Contributi su 12 mensilità: tredicesima e quattordicesima non ne hanno.
+   Imponibile: media delle ultime 12 buste paga con l'imponibile. Nell'anno simulato: mesi già registrati
+   con i valori reali; mesi mancanti prima del cambio con le aliquote in vigore; dal mese del cambio
+   azienda all'aliquota in vigore (zero se il tuo contributo è zero) e tuo alla percentuale scelta.
+   Il cambio vale dalla busta del mese dopo la consegna del modulo all'azienda (modulo del fondo). */
+const LINK_MODULO_CONTRIB = 'https://www.previdenzacooperativa.it/wp-content/uploads/2024/01/Attivazione-variazione-contribuzione.pdf';
+const SIM_MAX = 20; // come il limite delle aliquote in Impostazioni
+
+function simImponibile() {
+  const imps = data.bustePaga.filter((b) => b.imponibile > 0).slice(-12).map((b) => b.imponibile);
+  return imps.length ? { imp: imps.reduce((a, b) => a + b, 0) / imps.length, n: imps.length } : null;
+}
+// Anni simulabili e primo mese possibile: dal mese prossimo e dopo l'ultima busta registrata.
+function simOpzioni() {
+  const oggi = parseKey(todayKey()), out = [];
+  for (const y of [oggi.y, oggi.y + 1]) {
+    let da = 1;
+    if (y === oggi.y) { da = oggi.m + 1; for (const b of data.bustePaga) { const p = parseKey(b.mese); if (p.y === y) da = Math.max(da, p.m + 1); } }
+    if (da <= 12 && limiteDeducibile(y) != null) out.push({ y, da });
+  }
+  return out;
+}
+function simCalc(M, Y, m0, pct) {
+  const I = simImponibile(), lim = limiteDeducibile(Y); if (!I || lim == null) return null;
+  const imp = I.imp, n = 13 - m0, aliq = aliquotaIrpef(Y);
+  let volF = 0, azF = 0, stimati = 0, xd = 0, azS = 0;
+  for (let m = 1; m < m0; m++) {
+    const k = key(Y, m), d = M.months[k];
+    if (d) { volF += d.vol; azF += d.az; } else { const r = rateFor(k); volF += imp * r.volontario; azF += imp * r.azienda; stimati++; }
+  }
+  for (const x of M.X) if (x.y === Y && x.dedotto) xd += x.importo;
+  for (let m = m0; m <= 12; m++) azS += imp * rateFor(key(Y, m)).azienda;
+  const run = (p) => {
+    const az = azF + (p > 0 ? azS : 0), volS = imp * p * n, vol = volF + xd + volS, usato = vol + az;
+    const spazio = Math.max(0, lim - az); // la deduzione conta prima il contributo dell'azienda
+    const dedPrima = Math.min(volF + xd, spazio), dedS = Math.max(0, Math.min(volS, spazio - dedPrima));
+    return { p, az, vol, volS, usato, resto: lim - usato, oltre: Math.max(0, usato - lim), irpef: (dedPrima + dedS) * aliq,
+      mese: imp * p, risparmioMese: dedS * aliq / n, nettoMese: (volS - dedS * aliq) / n };
+  };
+  const curPct = rateFor(key(Y, m0)).volontario;
+  return { Y, m0, n, imp, nImp: I.n, lim, aliq, stimati, xd, curPct, need: (lim - volF - xd - azF - azS) / (imp * n), sim: run(pct), cur: run(curPct) };
+}
+const pctV = (p) => num(p, Math.abs(p - Math.round(p)) > 0.001 ? 1 : 0) + '%'; // 17,7% · 2%
+// Con l'articolo, come si legge il numero: lo 0%, l'1%, l'8%, l'11%, il 2%, il 17,7%.
+const ilPct = (p) => { const i = Math.floor(p + 1e-9); return (i === 0 ? 'lo ' : [1, 8, 11].includes(i) ? 'l\'' : 'il ') + pctV(p); };
+
+function simHTML() {
+  const s = ui.sheet, M = model(), P_ = priv(), oggi = parseKey(todayKey());
+  const head = `<div class="grabber"></div><div class="sheet-head"><span style="width:70px"></span><span class="t">Simula il tuo contributo</span><button type="button" data-act="sheet-close" style="font-weight:600">Fine</button></div>`;
+  const ops = simOpzioni(), op = ops.find((o) => o.y === s.y);
+  const C = op ? simCalc(M, s.y, s.m0, s.pct / 100) : null;
+  if (!C) return head + '<div class="note" style="margin-top:12px">Per la simulazione serve almeno una busta paga con l\'imponibile.</div>';
+  const mese = MESI[s.m0 - 1], need = C.need * 100, giu = Math.floor(need * 10 + 1e-6) / 10;
+  let needHTML;
+  if (C.need <= 0.0005) needHTML = `<div class="sim-big ok-t">Spazio già pieno</div><div class="sub">Con i contributi già registrati e quelli dell'azienda arrivi al limite del ${C.Y} anche senza aumentare.</div>`;
+  else if (need > SIM_MAX) needHTML = `<div class="sim-big warn-t">Oltre il ${SIM_MAX}%</div><div class="sub">Con ${C.n === 1 ? 'una sola busta' : C.n + ' buste'} servirebbe ${ilPct(need)} dell'imponibile. ${C.Y === oggi.y ? 'Lo spazio che resta si può riempire con un versamento volontario entro il 31 dicembre.' : 'Prova a partire da un mese prima.'}</div>`;
+  else needHTML = `<div class="sim-big">${pctV(giu)}</div>
+    <div class="sub">del tuo imponibile ogni mese, da ${mese} a dicembre (${C.n === 1 ? '1 busta' : C.n + ' buste'}): la percentuale più alta che resta entro il limite. Oggi versi ${ilPct(C.curPct * 100)}.</div>
+    ${Math.abs(giu - s.pct) > 0.001 ? `<button type="button" class="chipbtn" style="margin-top:10px" data-act="sim-set" data-v="${giu}">Prova ${ilPct(giu)}</button>` : ''}`;
+  const anni = ops.length > 1 ? `<div class="seg" role="group" aria-label="Anno" style="margin:12px 16px 0">${ops.map((o) => `<button type="button" data-act="sim-anno" data-v="${o.y}" aria-pressed="${o.y === s.y}">${o.y === oggi.y ? 'Quest\'anno' : 'Anno prossimo'} · ${o.y}</button>`).join('')}</div>` : '';
+  const mesi = []; for (let m = op.da; m <= 12; m++) mesi.push(`<option value="${m}" ${m === s.m0 ? 'selected' : ''}>${cap(MESI[m - 1])} ${s.y}</option>`);
+  return head + anni + `
+    <section class="card flush"><div class="field"><label for="sim-da">Nuova percentuale da</label><select id="sim-da" data-act="sim-da">${mesi.join('')}</select></div></section>
+    <div class="note">La nuova percentuale vale dalla busta paga del mese dopo la consegna del modulo all'azienda.</div>
+    <section class="card" aria-label="Percentuale per arrivare al limite"><div class="sub">Per arrivare al limite del ${C.Y}</div>${needHTML}</section>
+    <section class="card" aria-label="Simulazione">
+      <div class="pslider"><label for="sim-pct">Tuo contributo da ${mese}</label><input id="sim-pct" type="range" min="0" max="${SIM_MAX}" step="0.1" value="${s.pct}" data-sim="pct"><output id="sim-pct-o">${pctV(s.pct)}</output></div>
+      <div id="sim-out">${simOutHTML(C)}</div>
+    </section>
+    <section class="card flush">
+      <button type="button" class="listlink" data-act="sim-pens"><span>Effetto sulla pensione<br><span class="sub" id="sim-pens-s">Con ${ilPct(s.pct)}, nel calcolatore "E se…"</span></span></button>
+      ${extLink(LINK_MODULO_CONTRIB, '<span>Modulo per cambiare la percentuale</span>' + ICON_EXT, 'listlink')}
+    </section>
+    ${C.Y === oggi.y && !P_ ? '<section class="card flush"><button type="button" class="listlink" data-act="vv-new">+ Aggiungi versamento volontario</button></section>' : ''}
+    <div class="note" style="margin-bottom:8px">Simulazione con ${P_ ? 'la media del tuo imponibile' : 'un imponibile medio di ' + eur(C.imp)} (ultime ${C.nImp === 1 ? 'busta' : C.nImp + ' buste'}), su 12 mensilità: tredicesima e quattordicesima non hanno contributi. ${C.stimati ? (C.stimati === 1 ? 'Un mese senza busta prima del cambio è stimato' : C.stimati + ' mesi senza busta prima del cambio sono stimati') + ' con le aliquote in vigore. ' : ''}IRPEF risparmiata con l'aliquota del tuo scaglione (${pctPlain(C.aliq, 0)}, Impostazioni › Tasse); il netto in busta è una stima. Quando la nuova percentuale compare in busta paga, Quota la riconosce e ti propone di aggiornare l'aliquota. Non è un consiglio: la scelta dipende dal tuo bilancio familiare.</div>`;
+}
+
+function simOutHTML(C) {
+  const P_ = priv(), S = C.sim, sc = Math.max(C.lim, S.usato), w = (x) => (x / sc * 100).toFixed(1) + '%';
+  const ql = (x) => pq(x / C.lim), v = (x) => P_ ? ql(x) : eur(x, 0);
+  const [lab3, val3] = S.oltre > 0.5 ? ['Oltre il limite', `<span class="warn-t">${v(S.oltre)}</span>`] : S.resto < 0.5 ? ['Spazio', '<span class="ok-t">Pieno</span>'] : [P_ ? 'Spazio libero' : 'Restano', v(S.resto)];
+  let stato;
+  if (S.oltre > 0.5) stato = `<div class="banner warn" style="margin-top:12px;border-radius:12px">${P_ ? 'Oltre il limite' : 'Oltre il limite di ' + eur(S.oltre, 0)}: quella parte non si deduce. Va comunicata al fondo entro il 31 dicembre ${C.Y + 1}, così alla fine non viene tassata di nuovo.</div>`;
+  else if (S.resto < 0.5) stato = '<div class="banner ok" style="margin-top:12px;border-radius:12px">Arrivi al limite.</div>';
+  else stato = '';
+  const d = S.nettoMese - C.cur.nettoMese;
+  const righe = P_ ? '' : `<div style="margin-top:10px"></div>
+    <div class="yrow"><span>Contributo in busta</span><span class="num">${eur(S.mese)} al mese</span></div>
+    <div class="yrow"><span>IRPEF in meno</span><span class="num">${eur(S.risparmioMese)} al mese</span></div>
+    <div class="yrow"><span><b>Netto in busta</b></span><span class="num"><b>${S.nettoMese > 0.005 ? '−' + eur(S.nettoMese) : eur(0)} al mese</b></span></div>
+    ${Math.abs(S.p - C.curPct) > 0.0005 ? `<div class="sub" style="margin-top:4px">Rispetto a oggi (${pctV(C.curPct * 100)}): ${Math.abs(d) < 0.005 ? 'uguale' : eur(Math.abs(d)) + (d > 0 ? ' al mese in meno' : ' al mese in più')} di netto.</div>` : ''}
+    <div class="yrow"><span>IRPEF risparmiata nel ${C.Y}</span><span class="num">${eur(S.irpef, 0)}</span></div>`;
+  return `<div class="sub" style="margin-top:12px">${P_ ? 'Contributi deducibili del ' + C.Y + ', in percentuale del limite' : 'Contributi deducibili del ' + C.Y + ' su ' + eur(C.lim)}</div>
+    <div class="bar" role="img" aria-label="${P_ ? 'Usato il ' + ql(S.usato) + ' del limite' : 'Usati ' + eur(S.usato, 0) + ' su ' + eur(C.lim)}"><div style="width:${w(S.az)};background:var(--az)"></div><div style="width:${w(S.vol)};background:var(--vol)"></div></div>
+    <div class="grid3">
+      <div><div class="kv-l"><span class="dot" style="background:var(--vol)"></span>Tuo</div><div class="kv-v">${v(S.vol)}</div></div>
+      <div><div class="kv-l"><span class="dot" style="background:var(--az)"></span>Azienda</div><div class="kv-v">${v(S.az)}</div></div>
+      <div><div class="kv-l">${lab3}</div><div class="kv-v">${val3}</div></div>
+    </div>
+    ${stato}
+    ${S.p === 0 ? '<div class="sub" style="margin-top:10px">Senza il tuo contributo l\'azienda non versa il suo.</div>' : ''}
+    ${righe}
+    <div class="sub" style="margin-top:10px">Ogni 100 € di contributo deducibile ne paghi di tasca tua ${num(100 * (1 - C.aliq), 0)} €: il resto è IRPEF in meno.</div>`;
+}
+
+function openSim() {
+  const ops = simOpzioni(); if (!ops.length) return;
+  const oggi = parseKey(todayKey());
+  // Quest'anno se restano almeno 3 buste da cambiare, altrimenti l'anno prossimo.
+  const op = ops.find((o) => o.y === oggi.y && o.da <= 10) || ops[ops.length - 1];
+  ui.sheet = { type: 'simvol', y: op.y, m0: op.da, pct: Math.round(rateFor(key(op.y, op.da)).volontario * 1000) / 10 };
+  renderSheet();
+}
+// Ridisegna il foglio tenendo la posizione di scorrimento.
+function renderSheetKeep() { const sh = $('.sheet'), top = sh ? sh.scrollTop : 0; renderSheet(); const n = $('.sheet'); if (n) n.scrollTop = top; }
+function refreshSim() {
+  const s = ui.sheet; if (!s || s.type !== 'simvol') return;
+  const C = simCalc(model(), s.y, s.m0, s.pct / 100); if (!C) return;
+  const o = $('#sim-out'); if (o) o.innerHTML = simOutHTML(C);
+  const t = $('#sim-pct-o'); if (t) t.textContent = pctV(s.pct);
+  const ps = $('#sim-pens-s'); if (ps) ps.textContent = 'Con ' + ilPct(s.pct) + ', nel calcolatore "E se…"';
 }
 
 function bindChart(M) {
@@ -983,7 +1109,8 @@ function viewAnni(M) {
         <div><div class="kv-l">${lab3}</div><div class="kv-v">${val3}</div></div>
       </div>
       <div class="sub" style="margin-top:12px;color:var(--text-2)">${D.stimati ? D.stimati + (D.stimati === 1 ? ' mese con contributi stimati' : ' mesi con contributi stimati') + ' dalle aliquote, segnati qui sotto. ' : 'Contributi letti dalle buste paga. '}${D.xd > 0 ? (P_ ? 'Comprende i versamenti fuori busta dedotti. ' : 'Comprende ' + eur(D.xd) + ' versati fuori busta e dedotti. ') : ''}${D.xn > 0 ? (P_ ? 'I versamenti non dedotti non contano. ' : 'Non contano ' + eur(D.xn) + ' non dedotti. ') : ''}Il TFR versato al fondo${P_ ? '' : ' (' + eur(yf) + ')'} non rientra nel limite. Per conferma, confronta il totale con la Certificazione Unica.</div>
-      ${P_ ? '' : '<button type="button" class="linkbtn" data-act="vv-new">+ Aggiungi versamento volontario</button>'}
+      ${Y >= parseKey(todayKey()).y ? '<button type="button" class="linkbtn" data-act="sim-open">Simula il tuo contributo</button>' : ''}
+      ${P_ ? '' : `<button type="button" class="linkbtn" data-act="vv-new"${Y >= parseKey(todayKey()).y ? ' style="margin-top:0"' : ''}>+ Aggiungi versamento volontario</button>`}
     </section>`;
   }
 
@@ -1534,10 +1661,10 @@ function viewPensione(M) {
   <section class="card banner warn" style="padding:14px 18px;border-radius:var(--radius)"><b>Rendimento e rischio vanno insieme.</b> I comparti con più azioni rendono di più in media ma possono perdere di più negli anni negativi, e conta soprattutto negli anni vicini alla pensione. Questo confronto non è un consiglio sulla scelta del comparto.</section>`;
 
   // Calcolatore
-  const vDef = Math.round(B.volPct * 200) / 2, p = ui.pens;
+  const vDef = Math.round(B.volPct * 1000) / 10, p = ui.pens;
   html += `<h2 class="sec">E se…</h2><section class="card" aria-label="Calcolatore">
     <div class="sub">Sposta i cursori: il confronto è con la previsione qui sopra.</div>
-    <div class="pslider"><label for="p-vol">Tuo contributo</label><input id="p-vol" type="range" min="0" max="10" step="0.5" value="${p.vol == null ? vDef : p.vol}" data-p="vol"><output id="p-vol-o"></output></div>
+    <div class="pslider"><label for="p-vol">Tuo contributo</label><input id="p-vol" type="range" min="0" max="20" step="0.1" value="${p.vol == null ? vDef : p.vol}" data-p="vol"><output id="p-vol-o"></output></div>
     <div class="pslider"><label for="p-g">Crescita dello stipendio</label><input id="p-g" type="range" min="0" max="3" step="0.5" value="${p.g == null ? B.R.crescitaContributi * 100 : p.g}" data-p="g"><output id="p-g-o"></output></div>
     <div class="pslider"><label for="p-ex">Pensione</label><input id="p-ex" type="range" min="-3" max="3" step="1" value="${p.ex}" data-p="ex"><output id="p-ex-o"></output></div>
     <div class="seg" role="group" aria-label="Scenario di rendimento" style="margin:12px 0 0">${[[-1, 'Prudente'], [0, 'Come il fondo'], [1, 'Ottimista']].map(([v, l]) => `<button type="button" data-act="pens-sc" data-v="${v}" aria-pressed="${p.sc === v}">${l}</button>`).join('')}</div>
@@ -1554,9 +1681,9 @@ function refreshPens() {
   const M = model(), B = pensBase(M); if (!B) return;
   const p = ui.pens, base = pensRun(B, { vol: null, g: null, ex: 0, sc: 0 });
   const X = pensRun(B, p);
-  const vDef = Math.round(B.volPct * 200) / 2, volShown = p.vol == null ? vDef : p.vol;
+  const vDef = Math.round(B.volPct * 1000) / 10, volShown = p.vol == null ? vDef : p.vol;
   const set = (id, t) => { const e = $(id); if (e) e.textContent = t; };
-  set('#p-vol-o', num(volShown, volShown % 1 ? 1 : 0) + '%');
+  set('#p-vol-o', pctV(volShown));
   set('#p-g-o', num(X.g * 100, X.g * 1000 % 10 ? 1 : 0) + '%');
   set('#p-ex-o', String(Math.floor((B.pIdx + p.ex * 12) / 12)));
   set('#p-sc-o', 'Rendimento reale netto ' + pctPlain(B.rCur + p.sc * B.R.scartoScenari, 2) + ' l\'anno · comparto ' + B.comp + (p.vol === 0 ? ' · senza contributo tuo l\'azienda non versa' : ''));
@@ -1772,6 +1899,7 @@ function renderSheet() {
       <div class="note">Valori accettati tra 0,05% e 5%. Puoi sempre tornare ai valori ufficiali.</div>`;
   }
   if (s.type === 'compinfo') body = compInfoHTML();
+  if (s.type === 'simvol') body = simHTML();
   root.innerHTML = `<div class="scrim" data-act="sheet-scrim"><div class="sheet" role="dialog" aria-modal="true">${body}<div id="sheet-err"></div></div></div>`;
 }
 
@@ -1997,6 +2125,13 @@ document.addEventListener('click', (ev) => {
     case 'sheet': openSheet(v); break;
     case 'cmp-info': openSheet('compinfo'); { const sh = document.querySelector('.sheet'); if (sh) sh.scrollTop = 0; } break;
     case 'vv-new': openSheet('volontario'); break;
+    case 'sim-open': openSim(); break;
+    case 'sim-anno': if (ui.sheet && ui.sheet.type === 'simvol') { const o = simOpzioni().find((x) => x.y === Number(v)); if (o) { ui.sheet.y = o.y; ui.sheet.m0 = o.da; renderSheetKeep(); } } break;
+    case 'sim-set': if (ui.sheet && ui.sheet.type === 'simvol') { ui.sheet.pct = Number(v); renderSheetKeep(); } break;
+    case 'sim-pens': if (ui.sheet && ui.sheet.type === 'simvol') {
+      ui.pens.vol = ui.sheet.pct; ui.sheet = null; renderSheet(); ui.tab = 'pensione'; render();
+      const e = $('#p-vol'); if (e) e.scrollIntoView({ block: 'center' }); else window.scrollTo(0, 0);
+    } break;
     case 'vv-edit': openSheet('volontario', v); break;
     case 'vv-ded': if (ui.sheet) { ui.sheet.dedotto = v === '1'; if (ui.sheet.dedotto) ui.sheet.comunicato = false; renderSheet(); } break;
     case 'vv-del': if (ui.sheet && confirm('Eliminare questo versamento?')) { data.versamentiVolontari = data.versamentiVolontari.filter((x) => x.id !== ui.sheet.id); persist(); ui.sheet = null; toast('Versamento eliminato'); render(); } break;
@@ -2018,6 +2153,7 @@ document.addEventListener('input', (ev) => {
   if (t.dataset.f && ui.form) { ui.form[t.dataset.f] = t.value; ui.form.err = null; refreshInsCalc(); }
   if (t.dataset.s && ui.sheet) { ui.sheet[t.dataset.s] = t.value; }
   if (t.dataset.p && ui.tab === 'pensione') { ui.pens[t.dataset.p] = Number(t.value); refreshPens(); }
+  if (t.dataset.sim && ui.sheet && ui.sheet.type === 'simvol') { ui.sheet.pct = Number(t.value); refreshSim(); }
 });
 document.addEventListener('change', (ev) => {
   const t = ev.target;
@@ -2025,6 +2161,7 @@ document.addEventListener('change', (ev) => {
   if (t.dataset.act === 'busta-pdf' && t.files && t.files[0]) { const file = t.files[0]; t.value = ''; readBusta(file); }
   if (t.dataset.act === 'prosp-pdf' && t.files && t.files[0]) { const file = t.files[0]; t.value = ''; readProspetto(file); }
   if (t.dataset.act === 'ins-select') { ui.insMonth = t.value; ui.form = null; render(); }
+  if (t.dataset.act === 'sim-da' && ui.sheet && ui.sheet.type === 'simvol') { ui.sheet.m0 = Number(t.value); renderSheetKeep(); }
   if (t.dataset.act === 'scaglione-irpef' && data) { data.impostazioni.scaglioneIrpef = Number(t.value); persist(); render(); }
   if (t.dataset.act === 'giorno-paga' && data) { data.impostazioni.giornoPaga = Number(t.value); persist(); ui.insMonth = null; ui.form = null; render(); }
   if (t.dataset.s && ui.sheet) { ui.sheet[t.dataset.s] = t.value; }
